@@ -1,0 +1,28 @@
+#!/usr/bin/expect -f
+
+set timeout 300
+
+# Auto-detect bench directory (script location)
+set script_path [file dirname [file normalize [info script]]]
+cd $script_path
+
+spawn bash -c "source env/bin/activate && bench --site vgi.local reinstall --yes --admin-password admin --db-root-username root --db-root-password \"\""
+
+expect {
+    "MySQL root password:" {
+        send "\r"
+        exp_continue
+    }
+    "Password:" {
+        send "\r"
+        exp_continue
+    }
+    "ERROR" {
+        puts "\nError occurred"
+        exit 1
+    }
+    eof
+}
+
+wait
+

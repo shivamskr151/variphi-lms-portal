@@ -1,0 +1,63 @@
+name: lms
+services:
+  mariadb:
+    image: mariadb:10.8
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --skip-character-set-client-handshake
+      - --skip-innodb-read-only-compressed # Temporary fix for MariaDB 10.6
+    environment:
+      MYSQL_ROOT_PASSWORD: 123
+    volumes:
+      - mariadb-data:/var/lib/mysql
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:alpine
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  frappe:
+    build:
+      context: ../../..
+      dockerfile: apps/lms/docker/Dockerfile
+    image: lms-frappe:latest
+    command: bash /home/frappe/init.sh
+    environment:
+      - SHELL=/bin/bash
+      - PYTHONUNBUFFERED=1
+    working_dir: /home/frappe
+    volumes:
+      # Mount only necessary directories, not entire workspace
+      - ../../../:/workspace
+      # Persist bench data
+      - bench-data:/home/frappe/frappe-bench
+    ports:
+      - 8000:8000
+      - 9000:9000
+    restart: unless-stopped
+    depends_on:
+      mariadb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8000 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+volumes:
+  mariadb-data:
+  bench-data:

@@ -1,0 +1,170 @@
+# Credentials and sensitive files
+CREDENTIALS.md
+*.key
+*.pem
+*.crt
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual Environment
+env/
+venv/
+ENV/
+.venv
+
+# Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+.npm
+.yarn-integrity
+
+# Logs
+logs/
+*.log
+*.log.*
+*.1
+*.2
+*.3
+*.4
+*.5
+*.6
+*.7
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+*.rdb
+*.dump
+
+# Site-specific configs (may contain sensitive data)
+sites/*/site_config.json
+sites/common_site_config.json
+sites/*/private/
+sites/*/public/
+sites/*/locks/
+sites/*/logs/
+sites/*/indexes/
+
+# Build artifacts
+sites/assets/
+sites/*.bundle.js
+sites/*.bundle.js.map
+*.bundle.js
+*.bundle.js.map
+
+# Redis
+*.rdb
+config/pids/
+config/redis_*.conf
+config/redis_*.acl
+
+# Lock files (optional - you may want to track these)
+# config/bench_build.lock
+# config/site_config.lock
+
+# OS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+*.swp
+*.swo
+*~
+.project
+.pydevproject
+.settings/
+
+# IDE
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
+*.backup
+*.old
+
+# Coverage reports
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.pytest_cache/
+.hypothesis/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# pyenv
+.python-version
+
+# Celery
+celerybeat-schedule
+celerybeat.pid
+
+# SageMath parsed files
+*.sage.py
+
+# Spyder project settings
+.spyderproject
+.spyproject
+
+# Rope project settings
+.ropeproject
+
+# mkdocs documentation
+/site
+
+# mypy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Pyre type checker
+.pyre/
+
+# Frappe/Bench specific
+sites/*/private/
+sites/*/public/
+sites/*/locks/
+sites/*/logs/
+sites/*/indexes/
+config/pids/
+*.lock
+
+# Keep these directories but ignore their contents
+!sites/*/.gitkeep
+!logs/.gitkeep
+!config/pids/.gitkeep
