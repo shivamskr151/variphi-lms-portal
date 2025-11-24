@@ -67,6 +67,11 @@ if [ -d "$BENCH_DIR/apps/frappe" ] && [ -f "$BENCH_DIR/Procfile" ] && [ -d "$BEN
                     }
                 fi
                 
+                # Ensure signup is enabled
+                echo "Ensuring signup is enabled..."
+                bench --site lms.localhost execute "frappe.db.set_single_value('Website Settings', 'disable_signup', 0)" || true
+                bench --site lms.localhost clear-cache || true
+                
                 # Check if assets need to be built
                 # Assets are stored in sites/assets/assets.json
                 if [ ! -f "$BENCH_DIR/sites/assets/assets.json" ] || [ ! -s "$BENCH_DIR/sites/assets/assets.json" ]; then
@@ -210,6 +215,9 @@ if [ "$BENCH_VALID" = false ]; then
 web: bench serve --port 8000
 socketio: node apps/frappe/socketio.js
 worker: bench worker
+watch: bench watch
+schedule: bench schedule
+frontend: cd apps/lms/frontend && yarn dev
 EOF
         chown frappe:frappe ./Procfile 2>/dev/null || true
     fi
@@ -368,6 +376,9 @@ EOF
 web: bench serve --port 8000
 socketio: node apps/frappe/socketio.js
 worker: bench worker
+watch: bench watch
+schedule: bench schedule
+frontend: cd apps/lms/frontend && yarn dev
 EOF
                     chown frappe:frappe "$BENCH_DIR/Procfile" 2>/dev/null || true
                 fi
@@ -512,6 +523,9 @@ EOF
 web: bench serve --port 8000
 socketio: node apps/frappe/socketio.js
 worker: bench worker
+watch: bench watch
+schedule: bench schedule
+frontend: cd apps/lms/frontend && yarn dev
 EOF
         chown frappe:frappe ./Procfile 2>/dev/null || true
     fi
@@ -671,10 +685,24 @@ EOF
     bench set-redis-queue-host redis://redis:6379 || true
     bench set-redis-socketio-host redis://redis:6379 || true
     
-    # Remove redis, watch from Procfile
+    # Remove redis from Procfile (we use Docker Redis container)
+    # Keep watch and schedule for development
     if [ -f "./Procfile" ]; then
-        sed -i '/redis/d' ./Procfile || true
-        sed -i '/watch/d' ./Procfile || true
+        sed -i '/redis_cache/d' ./Procfile || true
+        sed -i '/redis_queue/d' ./Procfile || true
+        # Ensure watch and schedule are in Procfile (add if missing)
+        if ! grep -q "^watch:" ./Procfile; then
+            echo "watch: bench watch" >> ./Procfile
+        fi
+        if ! grep -q "^schedule:" ./Procfile; then
+            echo "schedule: bench schedule" >> ./Procfile
+        fi
+        # Add frontend dev server if not present (only if frontend directory exists)
+        if ! grep -q "^frontend:" ./Procfile; then
+            if [ -d "./apps/lms/frontend" ] && command -v yarn >/dev/null 2>&1; then
+                echo "frontend: cd apps/lms/frontend && yarn dev" >> ./Procfile
+            fi
+        fi
     fi
     
     # Get LMS app from workspace or install it
@@ -752,6 +780,24 @@ EOF
             }
         fi
         
+        # Ensure frontend dependencies are installed for dev server
+        if [ -d "./apps/lms/frontend" ]; then
+            echo "Installing frontend dependencies for dev server..."
+            cd ./apps/lms/frontend || true
+            if [ -f "yarn.lock" ] && command -v yarn >/dev/null 2>&1; then
+                yarn install --frozen-lockfile || {
+                    echo "⚠️  Frontend dependency install had issues, trying without frozen lockfile..."
+                    yarn install || echo "⚠️  Frontend dependencies may be incomplete"
+                }
+            elif [ -f "package.json" ] && command -v npm >/dev/null 2>&1; then
+                npm ci || {
+                    echo "⚠️  Frontend dependency install had issues, trying npm install..."
+                    npm install || echo "⚠️  Frontend dependencies may be incomplete"
+                }
+            fi
+            cd "$BENCH_DIR" || exit
+        fi
+        
         # Install payments app first (required for Payment Gateways module)
         if [ -d "./apps/payments" ]; then
             echo "Installing Payments app (required for Payment Gateways)..."
@@ -760,6 +806,11 @@ EOF
         
         bench --site lms.localhost install-app lms || true
         bench --site lms.localhost set-config developer_mode 1 || true
+        
+        # Enable signup (required for sign-up option to show on login page)
+        echo "Enabling signup..."
+        bench --site lms.localhost execute "frappe.db.set_single_value('Website Settings', 'disable_signup', 0)" || true
+        
         bench --site lms.localhost clear-cache || true
         bench use lms.localhost || true
         
