@@ -7,12 +7,18 @@ from lms.lms.api import give_discussions_permission
 def after_install():
 	create_batch_source()
 	give_discussions_permission()
+	# Set app name to VariPhi in Website Settings
+	frappe.db.set_single_value("Website Settings", "app_name", "VariPhi")
 
 
 def after_sync():
 	create_lms_roles()
 	set_default_certificate_print_format()
 	give_lms_roles_to_admin()
+	# Set app name to VariPhi in Website Settings (if not already set)
+	current_app_name = frappe.db.get_single_value("Website Settings", "app_name")
+	if not current_app_name or current_app_name == "Frappe":
+		frappe.db.set_single_value("Website Settings", "app_name", "VariPhi")
 
 
 def before_uninstall():

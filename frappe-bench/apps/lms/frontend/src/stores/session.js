@@ -50,7 +50,7 @@ export const sessionStore = defineStore('lms-session', () => {
 			brand.name = data.app_name
 			brand.logo = data.app_logo
 			brand.favicon =
-				data.favicon?.file_url || '/assets/lms/frontend/learning.svg'
+				data.favicon?.file_url || '/assets/lms/images/lms-logo.png'
 		},
 	})
 
