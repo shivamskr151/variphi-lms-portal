@@ -5204,9 +5204,6 @@ msgstr "Innlegg"
 msgid "Postal Code"
 msgstr "Postnummer"
 
-#: frontend/src/components/AppSidebar.vue:125
-msgid "Powered by Learning"
-msgstr ""
 
 #. Name of a DocType
 #: lms/lms/doctype/preferred_function/preferred_function.json

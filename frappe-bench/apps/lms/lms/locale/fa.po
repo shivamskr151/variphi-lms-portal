@@ -5204,9 +5204,6 @@ msgstr "پست"
 msgid "Postal Code"
 msgstr "کد پستی"
 
-#: frontend/src/components/AppSidebar.vue:125
-msgid "Powered by Learning"
-msgstr ""
 
 #. Name of a DocType
 #: lms/lms/doctype/preferred_function/preferred_function.json

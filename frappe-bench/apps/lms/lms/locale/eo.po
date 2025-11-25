@@ -5204,9 +5204,6 @@ msgstr "crwdns150448:0crwdne150448:0"
 msgid "Postal Code"
 msgstr "crwdns150450:0crwdne150450:0"
 
-#: frontend/src/components/AppSidebar.vue:125
-msgid "Powered by Learning"
-msgstr "crwdns154618:0crwdne154618:0"
 
 #. Name of a DocType
 #: lms/lms/doctype/preferred_function/preferred_function.json
