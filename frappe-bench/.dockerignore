@@ -1,0 +1,142 @@
+# Python virtual environment (huge, will be created in container)
+env/
+venv/
+ENV/
+.venv
+
+# Node modules (huge, will be installed in container)
+node_modules/
+**/node_modules/
+
+# Logs
+logs/
+*.log
+*.log.*
+*.1
+*.2
+*.3
+*.4
+*.5
+*.6
+*.7
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.coverage
+htmlcov/
+*.egg
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+*.rdb
+*.dump
+
+# Site runtime data (will be in volumes)
+sites/*/private/
+sites/*/public/
+sites/*/locks/
+sites/*/logs/
+sites/*/indexes/
+sites/*/site_config.json
+
+# Build artifacts (will be built in container)
+sites/assets/
+sites/*.bundle.js
+sites/*.bundle.js.map
+*.bundle.js
+*.bundle.js.map
+
+# Redis data
+config/pids/
+config/redis_*.conf
+config/redis_*.acl
+*.rdb
+
+# Git
+.git/
+.gitignore
+.gitattributes
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.project
+.pydevproject
+.settings/
+
+# OS
+.DS_Store
+.DS_Store?
+._*
+Thumbs.db
+desktop.ini
+ehthumbs.db
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
+*.backup
+*.old
+.cache/
+tmp/
+temp/
+
+# Archives
+*.zip
+*.tar
+*.tar.gz
+*.rar
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Docker files (exclude docker setup files, but allow init script)
+apps/lms/docker/docker-compose.yml
+apps/lms/docker/.dockerignore
+apps/lms/docker/docker-run.sh
+apps/lms/docker/README.md
+# Note: docker-init.sh and Dockerfile are needed, so don't exclude them
+# Also exclude other docker directories
+apps/frappe/docker/
+apps/payments/docker/
+
+# Archived directories
+archived/
+
+# Credentials
+*.key
+*.pem
+*.crt
+CREDENTIALS.md
+
+# Coverage and testing
+.coverage.*
+htmlcov/
+.tox/
+.hypothesis/
+.pytest_cache/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Lock files that might change
+*.lock
+yarn.lock
+package-lock.json
+

@@ -1,56 +1,60 @@
 # Git
 .git
 .gitignore
+.gitattributes
 
 # Python
 __pycache__
-*.pyc
-*.pyo
-*.pyd
-.Python
+*.py[cod]
+*$py.class
 *.so
-*.egg
+.Python
 *.egg-info
-dist
-build
+dist/
+build/
 .pytest_cache
 .coverage
-htmlcov
-
-# Node
-node_modules
-npm-debug.log
-yarn-error.log
-.npm
-.yarn
-
-# Environment
-env/
+htmlcov/
+*.egg
+.venv
 venv/
 ENV/
-.venv
+env/
+
+# Node
+node_modules/
+npm-debug.log
+yarn-error.log
+yarn.lock
+package-lock.json
+.npm
+.yarn
+.pnp.*
+
+# Environment
+.env
+.env.local
+.env.*.local
 
 # IDE
-.vscode
-.idea
+.vscode/
+.idea/
 *.swp
 *.swo
 *~
-
-# OS
 .DS_Store
-Thumbs.db
 
 # Logs
 *.log
 logs/
+*.log.*
 
 # Database
 *.db
 *.sqlite
 *.sqlite3
 
-# Site data (will be mounted as volume)
+# Site data (runtime data, should be in volumes)
 sites/*/private/
 sites/*/public/
 sites/*/locks/
@@ -62,5 +66,21 @@ sites/assets/
 # Temporary files
 *.tmp
 *.temp
-.cache
+.cache/
+tmp/
+temp/
 
+# Docker
+docker-compose.override.yml
+.dockerignore
+
+# Archives
+*.zip
+*.tar
+*.tar.gz
+*.rar
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini

@@ -1,42 +1,46 @@
+# Use official Frappe Bench image from Docker Hub
 FROM frappe/bench:latest
 
 # Set working directory
 WORKDIR /home/frappe
 
-# Install system dependencies if needed
+# Install additional system dependencies
 USER root
 RUN apt-get update && apt-get install -y \
     git \
     curl \
+    vim \
     && rm -rf /var/lib/apt/lists/*
 
-# Create workspace directory with proper permissions
-RUN mkdir -p /workspace && \
-    chown -R frappe:frappe /workspace
+# Switch to frappe user for file operations
+USER frappe
 
-# Install gosu for user switching (available in Debian)
-RUN apt-get update && apt-get install -y \
-    gosu \
-    && rm -rf /var/lib/apt/lists/*
+# Copy entire frappe-bench structure into the container
+# This includes apps, sites, config, etc.
+# Note: Source code is copied here, but will be overridden by volume mounts in development
+COPY --chown=frappe:frappe . /home/frappe/frappe-bench
 
-# Copy entrypoint and initialization scripts
-COPY apps/lms/docker/entrypoint.sh /entrypoint.sh
-COPY apps/lms/docker/init.sh /home/frappe/init.sh
-COPY setup-dependencies.sh /home/frappe/setup-dependencies.sh
-RUN chmod +x /entrypoint.sh /home/frappe/init.sh /home/frappe/setup-dependencies.sh && \
-    chown frappe:frappe /home/frappe/init.sh /home/frappe/setup-dependencies.sh
+# Ensure init script is executable (it should be included in the copy above)
+RUN if [ -f "/home/frappe/frappe-bench/apps/lms/docker/docker-init.sh" ]; then \
+        chmod +x /home/frappe/frappe-bench/apps/lms/docker/docker-init.sh; \
+    fi
 
-# Keep as root for entrypoint to fix permissions
-# USER frappe will be handled by entrypoint
+# Set working directory to bench
+WORKDIR /home/frappe/frappe-bench
+
+# Note: Dependencies will be installed at runtime by the init script
+# This allows the bench environment to be properly set up first
 
 # Set environment variables
-ENV SHELL=/bin/bash
 ENV PYTHONUNBUFFERED=1
+ENV SHELL=/bin/bash
+ENV BENCH_NAME=frappe-bench
+ENV MARIADB_HOST=mariadb
+ENV MARIADB_ROOT_PASSWORD=123
 
-# Set working directory for commands
-WORKDIR /workspace
+# Expose ports
+EXPOSE 8000 9000 5173 6787
 
-# Use entrypoint to fix permissions
-ENTRYPOINT ["/entrypoint.sh"]
-CMD ["bash", "/home/frappe/init.sh"]
-
+# Default command - can be overridden in docker-compose
+# Script will be available via volume mount in development
+CMD ["bash", "/home/frappe/frappe-bench/apps/lms/docker/docker-init.sh"]

@@ -1,64 +1,89 @@
-name: lms
+name: lms-development
+
 services:
   mariadb:
     image: mariadb:10.8
+    container_name: lms-mariadb
     command:
       - --character-set-server=utf8mb4
       - --collation-server=utf8mb4_unicode_ci
       - --skip-character-set-client-handshake
-      - --skip-innodb-read-only-compressed # Temporary fix for MariaDB 10.6
+      - --skip-innodb-read-only-compressed
     environment:
       MYSQL_ROOT_PASSWORD: 123
+      MYSQL_DATABASE: lms
     volumes:
       - mariadb-data:/var/lib/mysql
+    ports:
+      - "3307:3306"  # Host port 3307 -> Container port 3306 (3306 already in use locally)
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-p123"]
       interval: 10s
       timeout: 5s
       retries: 5
+      start_period: 30s
 
   redis:
-    image: redis:alpine
+    image: redis:7-alpine
+    container_name: lms-redis
+    command: redis-server --appendonly yes
+    volumes:
+      - redis-data:/data
+    ports:
+      - "6380:6379"  # Host port 6380 -> Container port 6379 (6379 already in use locally)
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
-      timeout: 5s
+      timeout: 3s
       retries: 5
 
   frappe:
     build:
-      context: ../../..
+      context: ../../..  # frappe-bench directory
       dockerfile: apps/lms/docker/Dockerfile
     image: lms-frappe:latest
-    command: bash /home/frappe/init.sh
+    container_name: lms-frappe
     environment:
-      - SHELL=/bin/bash
       - PYTHONUNBUFFERED=1
-    working_dir: /home/frappe
+      - SHELL=/bin/bash
+      - MARIADB_HOST=mariadb
+      - MARIADB_ROOT_PASSWORD=123
+      - FRAPPE_DB_HOST=mariadb
+      - FRAPPE_DB_PORT=3306
+      - FRAPPE_DB_SOCKET=
+      - REDIS_CACHE=redis://redis:6379
+      - REDIS_QUEUE=redis://redis:6379
+      - REDIS_SOCKETIO=redis://redis:6379
+    working_dir: /home/frappe/frappe-bench
     volumes:
-      # Mount only necessary directories, not entire workspace
-      - ../../../:/workspace
-      # Persist bench data
-      - bench-data:/home/frappe/frappe-bench
+      # Mount source code for hot reload - any local changes will reflect immediately
+      - ../../../apps:/home/frappe/frappe-bench/apps:rw
+      - ../../../sites:/home/frappe/frappe-bench/sites:rw
+      - ../../../config:/home/frappe/frappe-bench/config:rw
+      - ../../../logs:/home/frappe/frappe-bench/logs:rw
+      # Note: env/ directory will be created in container, not mounted
+      # This allows it to be properly initialized without volume conflicts
     ports:
-      - 8000:8000
-      - 9000:9000
-      - 5173:5173  # Frontend Vite dev server
-    restart: unless-stopped
+      - "8000:8000"   # Web server
+      - "9000:9000"   # SocketIO
+      - "5173:5173"   # Frontend Vite dev server
+      - "6787:6787"   # File watcher
     depends_on:
       mariadb:
         condition: service_healthy
       redis:
         condition: service_healthy
-    healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:8000 || exit 1"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 60s
+    restart: unless-stopped
+    command: bash /home/frappe/frappe-bench/apps/lms/docker/docker-init.sh
 
 volumes:
   mariadb-data:
-  bench-data:
+    driver: local
+  redis-data:
+    driver: local
+
+networks:
+  default:
+    name: lms-network
