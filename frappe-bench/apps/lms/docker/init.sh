@@ -70,6 +70,8 @@ if [ -d "$BENCH_DIR/apps/frappe" ] && [ -f "$BENCH_DIR/Procfile" ] && [ -d "$BEN
                 # Ensure signup is enabled
                 echo "Ensuring signup is enabled..."
                 bench --site lms.localhost execute "frappe.db.set_single_value('Website Settings', 'disable_signup', 0)" || true
+                # Set app name to VariPhi
+                bench --site lms.localhost execute "frappe.db.set_single_value('Website Settings', 'app_name', 'VariPhi')" || true
                 bench --site lms.localhost clear-cache || true
                 
                 # Check if assets need to be built
@@ -810,6 +812,8 @@ EOF
         # Enable signup (required for sign-up option to show on login page)
         echo "Enabling signup..."
         bench --site lms.localhost execute "frappe.db.set_single_value('Website Settings', 'disable_signup', 0)" || true
+        # Set app name to VariPhi
+        bench --site lms.localhost execute "frappe.db.set_single_value('Website Settings', 'app_name', 'VariPhi')" || true
         
         bench --site lms.localhost clear-cache || true
         bench use lms.localhost || true
