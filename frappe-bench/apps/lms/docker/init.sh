@@ -5,9 +5,80 @@ export PATH="${NVM_DIR}/versions/node/v${NODE_VERSION_DEVELOP}/bin/:${PATH}"
 
 BENCH_DIR="/home/frappe/frappe-bench"
 WORKSPACE_DIR="/workspace"
+MARIADB_HOST="mariadb"
+MARIADB_ROOT_PASSWORD="123"
+
+# Function to wait for MariaDB to be ready
+wait_for_mariadb() {
+    echo "Waiting for MariaDB to be ready..."
+    local max_attempts=30
+    local attempt=1
+    
+    while [ $attempt -le $max_attempts ]; do
+        local connected=false
+        
+        # Try mysql client first
+        if command -v mysql >/dev/null 2>&1; then
+            if mysql -h "$MARIADB_HOST" -u root -p"$MARIADB_ROOT_PASSWORD" -e "SELECT 1" >/dev/null 2>&1; then
+                connected=true
+            fi
+        # Try mariadb client
+        elif command -v mariadb >/dev/null 2>&1; then
+            if mariadb -h "$MARIADB_HOST" -u root -p"$MARIADB_ROOT_PASSWORD" -e "SELECT 1" >/dev/null 2>&1; then
+                connected=true
+            fi
+        # Try Python with pymysql (most likely to be available)
+        elif python3 -c "import pymysql" >/dev/null 2>&1; then
+            if python3 << EOF >/dev/null 2>&1
+import pymysql
+try:
+    conn = pymysql.connect(
+        host='$MARIADB_HOST',
+        user='root',
+        password='$MARIADB_ROOT_PASSWORD',
+        connect_timeout=2
+    )
+    conn.close()
+    exit(0)
+except:
+    exit(1)
+EOF
+            then
+                connected=true
+            fi
+        # Fallback: try to connect using netcat or just wait
+        elif command -v nc >/dev/null 2>&1; then
+            if nc -z "$MARIADB_HOST" 3306 >/dev/null 2>&1; then
+                # Port is open, assume it's ready (best we can do without a client)
+                if [ $attempt -ge 5 ]; then
+                    echo "✓ MariaDB port is open (assuming ready)"
+                    connected=true
+                fi
+            fi
+        fi
+        
+        if [ "$connected" = true ]; then
+            echo "✓ MariaDB is ready"
+            return 0
+        fi
+        
+        if [ $((attempt % 5)) -eq 0 ]; then
+            echo "   Attempt $attempt/$max_attempts: MariaDB not ready yet, waiting..."
+        fi
+        sleep 2
+        attempt=$((attempt + 1))
+    done
+    
+    echo "⚠️  MariaDB did not become ready after $max_attempts attempts"
+    echo "   Continuing anyway, but database operations may fail..."
+    return 1
+}
 
 # Change to home directory first
 cd /home/frappe || exit
+
+# Wait for MariaDB to be ready before proceeding
+wait_for_mariadb || true
 
 # Check if bench already exists and is valid
 # A valid bench must have: apps/frappe directory, Procfile, AND env directory
@@ -35,7 +106,27 @@ if [ -d "$BENCH_DIR/apps/frappe" ] && [ -f "$BENCH_DIR/Procfile" ] && [ -d "$BEN
             echo "✓ Bench is valid, reusing existing setup..."
             
             # Ensure Redis and MariaDB settings are correct
-            bench set-mariadb-host mariadb || true
+            bench set-mariadb-host "$MARIADB_HOST" || true
+            # Set MariaDB root password in common_site_config.json
+            if [ -f "./sites/common_site_config.json" ]; then
+                python3 << EOF || true
+import json
+import os
+
+config_file = "./sites/common_site_config.json"
+try:
+    with open(config_file, 'r') as f:
+        config = json.load(f)
+except (FileNotFoundError, json.JSONDecodeError):
+    config = {}
+
+config['db_host'] = '$MARIADB_HOST'
+config['root_password'] = '$MARIADB_ROOT_PASSWORD'
+
+with open(config_file, 'w') as f:
+    json.dump(config, f, indent=2)
+EOF
+            fi
             bench set-redis-cache-host redis://redis:6379 || true
             bench set-redis-queue-host redis://redis:6379 || true
             bench set-redis-socketio-host redis://redis:6379 || true
@@ -682,7 +773,27 @@ EOF
     # Use containers instead of localhost
     # These commands must be run from within the bench directory
     echo "Configuring bench for Docker containers..."
-    bench set-mariadb-host mariadb || true
+    bench set-mariadb-host "$MARIADB_HOST" || true
+    # Set MariaDB root password in common_site_config.json
+    if [ -f "./sites/common_site_config.json" ]; then
+        python3 << EOF || true
+import json
+import os
+
+config_file = "./sites/common_site_config.json"
+try:
+    with open(config_file, 'r') as f:
+        config = json.load(f)
+except (FileNotFoundError, json.JSONDecodeError):
+    config = {}
+
+config['db_host'] = '$MARIADB_HOST'
+config['root_password'] = '$MARIADB_ROOT_PASSWORD'
+
+with open(config_file, 'w') as f:
+    json.dump(config, f, indent=2)
+EOF
+    fi
     bench set-redis-cache-host redis://redis:6379 || true
     bench set-redis-queue-host redis://redis:6379 || true
     bench set-redis-socketio-host redis://redis:6379 || true
@@ -760,9 +871,12 @@ EOF
     
     # Check if site already exists
     if [ ! -d "./sites/lms.localhost" ]; then
+        # Ensure MariaDB is ready before creating site
+        wait_for_mariadb || true
+        
         bench new-site lms.localhost \
             --force \
-            --mariadb-root-password 123 \
+            --mariadb-root-password "$MARIADB_ROOT_PASSWORD" \
             --admin-password admin \
             --no-mariadb-socket || {
             echo "⚠️  Site creation failed, but continuing..."
