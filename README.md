@@ -68,8 +68,8 @@ For detailed Docker setup instructions, see [frappe-bench/apps/lms/docker/README
 
 1. **Clone the repository:**
    ```bash
-   git clone https://github.com/shivamskr151/test_lms.git
-   cd test_lms/frappe-bench
+   git clone https://github.com/shivamskr151/variphi-lms-portal.git
+   cd variphi-lms-portal/frappe-bench
    ```
 
 2. **Set up database:**
@@ -97,7 +97,7 @@ For detailed setup instructions, see [frappe-bench/README.md](frappe-bench/READM
 ## 📁 Project Structure
 
 ```
-test_lms/
+variphi-lms-portal/
 ├── frappe-bench/              # Main Frappe Bench directory
 │   ├── apps/                  # Frappe applications
 │   │   ├── frappe/           # Frappe Framework core
@@ -316,8 +316,8 @@ This project is licensed under the AGPL-3.0 License. See individual app licenses
 
 ## 🔗 Links
 
-- **Repository**: https://github.com/shivamskr151/test_lms
-- **Issues**: https://github.com/shivamskr151/test_lms/issues
+- **Repository**: https://github.com/shivamskr151/variphi-lms-portal
+- **Issues**: https://github.com/shivamskr151/variphi-lms-portal/issues
 - **Frappe Framework**: https://frappeframework.com
 - **LMS App**: https://github.com/frappe/lms
 
