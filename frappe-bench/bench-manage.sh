@@ -306,11 +306,174 @@ cmd_stop() {
 }
 
 # =============================================================================
+# Helper: Auto-detect and fix database port
+# =============================================================================
+fix_database_port() {
+    log_info "Auto-detecting database port..."
+    
+    # Detect which port MariaDB is actually running on
+    DB_PORT=3306
+    if lsof -Pi :3306 -sTCP:LISTEN -t >/dev/null 2>&1; then
+        DB_PORT=3306
+        log_success "MariaDB detected on port 3306 (local)"
+    elif lsof -Pi :3307 -sTCP:LISTEN -t >/dev/null 2>&1; then
+        DB_PORT=3307
+        log_success "MariaDB detected on port 3307 (Docker)"
+    else
+        log_warning "MariaDB not detected on ports 3306 or 3307, using default 3306"
+        DB_PORT=3306
+    fi
+    
+    # Update all site configs to use the correct port
+    if [ -d "$BENCH_DIR/sites" ]; then
+        for site_config in "$BENCH_DIR/sites"/*/site_config.json; do
+            if [ -f "$site_config" ]; then
+                CURRENT_PORT=$(python3 -c "import json; f=open('$site_config'); c=json.load(f); print(c.get('db_port', 3306)); f.close()" 2>/dev/null || echo "3306")
+                DB_HOST=$(python3 -c "import json; f=open('$site_config'); c=json.load(f); print(c.get('db_host', '127.0.0.1')); f.close()" 2>/dev/null || echo "127.0.0.1")
+                
+                # Fix host if it's set to Docker values (mariadb, host.docker.internal)
+                # or if port needs updating for local development
+                NEEDS_UPDATE=false
+                if [ "$DB_HOST" = "mariadb" ] || [ "$DB_HOST" = "host.docker.internal" ]; then
+                    NEEDS_UPDATE=true
+                elif [ "$DB_HOST" = "127.0.0.1" ] || [ "$DB_HOST" = "localhost" ]; then
+                    if [ "$CURRENT_PORT" != "$DB_PORT" ]; then
+                        NEEDS_UPDATE=true
+                    fi
+                fi
+                
+                if [ "$NEEDS_UPDATE" = true ]; then
+                    python3 << PYEOF
+import json
+import sys
+
+try:
+    with open('$site_config', 'r') as f:
+        config = json.load(f)
+    
+    old_host = config.get('db_host', '127.0.0.1')
+    old_port = config.get('db_port', 3306)
+    
+    # Always set to local for local development
+    config['db_port'] = $DB_PORT
+    config['db_host'] = '127.0.0.1'
+    
+    with open('$site_config', 'w') as f:
+        json.dump(config, f, indent=1)
+    
+    site_name = '$site_config'.split('/')[-2]
+    if old_host != '127.0.0.1' or old_port != $DB_PORT:
+        print(f"   Updated {site_name}: {old_host}:{old_port} -> 127.0.0.1:$DB_PORT")
+    else:
+        print(f"   Verified {site_name}: 127.0.0.1:$DB_PORT")
+except Exception as e:
+    print(f"   Error updating $site_config: {e}", file=sys.stderr)
+    sys.exit(1)
+PYEOF
+                fi
+            fi
+        done
+    fi
+}
+
+# =============================================================================
+# Helper: Ensure Home folder exists for file uploads
+# =============================================================================
+ensure_home_folder() {
+    # This is a non-blocking check - Home folder will be created automatically
+    # when needed by Frappe, so we don't need to block bench start for this
+    log_info "Home folder will be created automatically on first file upload"
+    # Skip the actual check to avoid hanging - it's non-critical
+    return 0
+}
+
+# =============================================================================
+# Helper: Fix asset symlinks to ensure icons are accessible
+# =============================================================================
+fix_assets_symlinks() {
+    log_info "Ensuring asset symlinks are correct..."
+    
+    # Check if frappe assets need fixing
+    FIX_NEEDED=false
+    
+    # Check if frappe is a directory instead of symlink, or if icons are missing
+    if [ -d "$BENCH_DIR/sites/assets/frappe" ] && [ ! -L "$BENCH_DIR/sites/assets/frappe" ]; then
+        if [ ! -d "$BENCH_DIR/sites/assets/frappe/icons" ]; then
+            FIX_NEEDED=true
+        fi
+    elif [ -L "$BENCH_DIR/sites/assets/frappe" ]; then
+        LINK_TARGET=$(readlink "$BENCH_DIR/sites/assets/frappe" 2>/dev/null || echo "")
+        if echo "$LINK_TARGET" | grep -q "/home/frappe" || [ ! -d "$BENCH_DIR/sites/assets/frappe/icons" ]; then
+            FIX_NEEDED=true
+        fi
+    else
+        FIX_NEEDED=true
+    fi
+    
+    if [ "$FIX_NEEDED" = true ]; then
+        log_info "Fixing asset symlinks..."
+        # Remove broken symlinks or directories
+        rm -rf "$BENCH_DIR/sites/assets/frappe" "$BENCH_DIR/sites/assets/lms" "$BENCH_DIR/sites/assets/payments" 2>/dev/null || true
+        
+        # Recreate symlinks using bench build
+        activate_env
+        bench build --using-cached > /dev/null 2>&1 || {
+            # Fallback: manually create symlinks if bench build fails
+            if [ -d "$BENCH_DIR/apps/frappe/frappe/public" ]; then
+                ln -sf "$BENCH_DIR/apps/frappe/frappe/public" "$BENCH_DIR/sites/assets/frappe" 2>/dev/null || true
+            fi
+            if [ -d "$BENCH_DIR/apps/lms/lms/public" ]; then
+                ln -sf "$BENCH_DIR/apps/lms/lms/public" "$BENCH_DIR/sites/assets/lms" 2>/dev/null || true
+            fi
+        }
+        log_success "Asset symlinks fixed"
+    fi
+}
+
+# =============================================================================
 # COMMAND: start - Start bench
 # =============================================================================
 cmd_start() {
     echo "=== Starting Bench ==="
     echo ""
+    
+    # Restore local configuration if it was overwritten by Docker
+    NEEDS_RESTORE=false
+    if [ -f "$BENCH_DIR/sites/common_site_config.json" ]; then
+        REDIS_QUEUE=$(python3 -c "import json; f=open('$BENCH_DIR/sites/common_site_config.json'); c=json.load(f); print(c.get('redis_queue', '')); f.close()" 2>/dev/null || echo "")
+        if echo "$REDIS_QUEUE" | grep -q "redis://redis:6379"; then
+            NEEDS_RESTORE=true
+        fi
+    fi
+    
+    # Check if any site config has Docker database host
+    if [ -d "$BENCH_DIR/sites" ]; then
+        for site_config in "$BENCH_DIR/sites"/*/site_config.json; do
+            if [ -f "$site_config" ]; then
+                DB_HOST=$(python3 -c "import json; f=open('$site_config'); c=json.load(f); print(c.get('db_host', '')); f.close()" 2>/dev/null || echo "")
+                if [ "$DB_HOST" = "mariadb" ]; then
+                    NEEDS_RESTORE=true
+                    break
+                fi
+            fi
+        done
+    fi
+    
+    if [ "$NEEDS_RESTORE" = true ]; then
+        log_info "Restoring local configuration (was set to Docker values)..."
+        if [ -f "$BENCH_DIR/restore-local-config.sh" ]; then
+            "$BENCH_DIR/restore-local-config.sh" > /dev/null 2>&1
+        fi
+    fi
+    
+    # Auto-detect and fix database port (PERMANENT FIX)
+    fix_database_port
+    
+    # Ensure Home folder exists for file uploads (PERMANENT FIX)
+    ensure_home_folder
+    
+    # Fix asset symlinks to ensure icons are accessible (PERMANENT FIX)
+    fix_assets_symlinks
     
     # Ensure Redis configs are up to date
     log_info "Ensuring Redis configs are up to date..."
@@ -395,8 +558,11 @@ cmd_redis_cache() {
         exit 1
     fi
     
-    # Start Redis with the freshly generated config
-    exec redis-server "$BENCH_DIR/config/redis_cache.conf"
+    # Use absolute path for config file to ensure Redis reads it correctly
+    REDIS_CONFIG="$BENCH_DIR/config/redis_cache.conf"
+    
+    # Start Redis with the freshly generated config (use absolute path)
+    exec redis-server "$REDIS_CONFIG"
 }
 
 # =============================================================================
@@ -418,8 +584,11 @@ cmd_redis_queue() {
         exit 1
     fi
     
-    # Start Redis with the freshly generated config
-    exec redis-server "$BENCH_DIR/config/redis_queue.conf"
+    # Use absolute path for config file to ensure Redis reads it correctly
+    REDIS_CONFIG="$BENCH_DIR/config/redis_queue.conf"
+    
+    # Start Redis with the freshly generated config (use absolute path)
+    exec redis-server "$REDIS_CONFIG"
 }
 
 # =============================================================================

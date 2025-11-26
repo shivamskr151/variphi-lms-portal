@@ -48,10 +48,12 @@ services:
     environment:
       - PYTHONUNBUFFERED=1
       - SHELL=/bin/bash
-      - MARIADB_HOST=mariadb
-      - MARIADB_ROOT_PASSWORD=123
-      - FRAPPE_DB_HOST=mariadb
-      - FRAPPE_DB_PORT=3306
+      # Use host.docker.internal to connect to local MariaDB (macOS/Windows)
+      # On Linux, use host network mode or gateway IP
+      - MARIADB_HOST=${MARIADB_HOST:-host.docker.internal}
+      - MARIADB_ROOT_PASSWORD=${MARIADB_ROOT_PASSWORD:-}
+      - FRAPPE_DB_HOST=${FRAPPE_DB_HOST:-host.docker.internal}
+      - FRAPPE_DB_PORT=${FRAPPE_DB_PORT:-3306}
       - FRAPPE_DB_SOCKET=
       - REDIS_CACHE=redis://redis:6379
       - REDIS_QUEUE=redis://redis:6379
@@ -63,6 +65,8 @@ services:
       - ../../../sites:/home/frappe/frappe-bench/sites:rw
       - ../../../config:/home/frappe/frappe-bench/config:rw
       - ../../../logs:/home/frappe/frappe-bench/logs:rw
+      # Mount Procfile.docker for Docker-specific configuration
+      - ../../../Procfile.docker:/home/frappe/frappe-bench/Procfile.docker:ro
       # Note: env/ directory will be created in container, not mounted
       # This allows it to be properly initialized without volume conflicts
     ports:
@@ -71,10 +75,11 @@ services:
       - "5173:5173"   # Frontend Vite dev server
       - "6787:6787"   # File watcher
     depends_on:
-      mariadb:
-        condition: service_healthy
       redis:
         condition: service_healthy
+    # Remove mariadb dependency since we're using local MariaDB
+    extra_hosts:
+      - "host.docker.internal:host-gateway"  # Allows container to access host services
     restart: unless-stopped
     command: bash /home/frappe/frappe-bench/apps/lms/docker/docker-init.sh
 

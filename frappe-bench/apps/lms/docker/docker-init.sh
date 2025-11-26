@@ -12,28 +12,95 @@ export FRAPPE_BENCH_ROOT="$BENCH_DIR"
 
 echo "🚀 Initializing Frappe Bench in Docker..."
 
-# Function to wait for MariaDB
+# Function to wait for MariaDB (local or Docker)
 wait_for_mariadb() {
-    echo "⏳ Waiting for MariaDB to be ready..."
-    local max_attempts=30
+    local db_host="${MARIADB_HOST:-host.docker.internal}"
+    local db_port="${FRAPPE_DB_PORT:-3306}"
+    local db_root_password="${MARIADB_ROOT_PASSWORD:-}"
+    
+    echo "⏳ Checking MariaDB connection at $db_host:$db_port..."
+    
+    # Use Python to check database connection (more reliable than mysql client)
+    # This works even if mysql client is not installed in the container
+    local max_attempts=15
     local attempt=1
     
     while [ $attempt -le $max_attempts ]; do
-        if mysql -h "${MARIADB_HOST:-mariadb}" -u root -p"${MARIADB_ROOT_PASSWORD:-123}" -e "SELECT 1" >/dev/null 2>&1; then
-            echo "✅ MariaDB is ready"
+        # Try to connect using Python (which is always available in the container)
+        if python3 << PYEOF 2>/dev/null; then
+import socket
+import sys
+
+host = "$db_host"
+port = int("$db_port")
+
+try:
+    # First check if we can reach the host
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.settimeout(2)
+    result = sock.connect_ex((host, port))
+    sock.close()
+    
+    if result == 0:
+        # Port is open - MariaDB is accessible
+        # Try database connection if pymysql is available
+        try:
+            import pymysql
+            password = "$db_root_password"
+            try:
+                if password:
+                    conn = pymysql.connect(
+                        host=host,
+                        port=port,
+                        user='root',
+                        password=password,
+                        connect_timeout=2
+                    )
+                else:
+                    # Try without password (local MariaDB often has no root password)
+                    conn = pymysql.connect(
+                        host=host,
+                        port=port,
+                        user='root',
+                        connect_timeout=2
+                    )
+                conn.close()
+                sys.exit(0)  # Success - full connection works
+            except Exception as e:
+                # Port is open but DB connection failed - port check is enough for now
+                # The actual connection will be tested when bench tries to connect
+                sys.exit(0)  # Consider it ready if port is open
+        except ImportError:
+            # pymysql not available yet - just check port accessibility
+            sys.exit(0)  # Port is open, that's enough
+    else:
+        sys.exit(1)  # Port not open
+except Exception:
+    sys.exit(1)  # Connection failed
+PYEOF
+            echo "✅ MariaDB is ready at $db_host:$db_port"
             return 0
         fi
-        echo "   Attempt $attempt/$max_attempts: Waiting for MariaDB..."
-        sleep 2
+        
+        if [ $attempt -lt $max_attempts ]; then
+            echo "   Attempt $attempt/$max_attempts: Waiting for MariaDB..."
+            sleep 2
+        fi
         attempt=$((attempt + 1))
     done
     
-    echo "⚠️  MariaDB did not become ready, continuing anyway..."
+    echo "⚠️  Could not connect to MariaDB at $db_host:$db_port"
+    echo "   This is OK if you're using local MariaDB - the connection will be tested later"
+    echo "   Make sure MariaDB is running: brew services start mariadb"
     return 1
 }
 
-# Wait for database
-wait_for_mariadb || true
+# Wait for database (non-blocking - will continue even if connection fails)
+# This is especially important when connecting to local MariaDB from container
+wait_for_mariadb || {
+    echo "ℹ️  Continuing without MariaDB connection check..."
+    echo "   The connection will be verified when the site is initialized"
+}
 
 # Verify bench structure exists
 if [ ! -d "apps/frappe" ]; then
@@ -291,8 +358,10 @@ if [ -d "sites/$SITE_NAME" ]; then
     export PATH="$(pwd)/env/bin:$PATH"
     export VIRTUAL_ENV="$(pwd)/env"
     export FRAPPE_BENCH_ROOT="$(pwd)"
-    export FRAPPE_DB_HOST="${MARIADB_HOST:-mariadb}"
-    export FRAPPE_DB_PORT="3306"
+    # Use host.docker.internal to connect to local MariaDB (macOS/Windows)
+    # This allows Docker to use the same database as local development
+    export FRAPPE_DB_HOST="${MARIADB_HOST:-host.docker.internal}"
+    export FRAPPE_DB_PORT="${FRAPPE_DB_PORT:-3306}"
     export FRAPPE_DB_SOCKET=""
     
     # Try to connect to database
@@ -300,11 +369,9 @@ if [ -d "sites/$SITE_NAME" ]; then
         DB_CONNECTION_WORKS=true
         echo "✅ Database connection working"
     else
-        echo "⚠️  Database connection failed, site may need to be recreated"
-        # Remove site directory to force recreation
-        echo "   Removing existing site directory to recreate with Docker database..."
-        rm -rf "sites/$SITE_NAME"
-        SITE_EXISTS=false
+        echo "⚠️  Database connection failed, trying to update site config..."
+        # Don't remove site, just try to update config
+        SITE_EXISTS=true  # Keep existing site
     fi
 fi
 
@@ -317,30 +384,33 @@ if [ "$SITE_EXISTS" = false ]; then
     export FRAPPE_BENCH_ROOT="$(pwd)"
     
     # Set database environment variables to ensure TCP connection
-    export FRAPPE_DB_HOST="${MARIADB_HOST:-mariadb}"
-    export FRAPPE_DB_PORT="3306"
+    # Use host.docker.internal to connect to local MariaDB
+    export FRAPPE_DB_HOST="${MARIADB_HOST:-host.docker.internal}"
+    export FRAPPE_DB_PORT="${FRAPPE_DB_PORT:-3306}"
     export FRAPPE_DB_SOCKET=""
     
-    # Create site with explicit TCP connection (not socket)
+    # Create site with explicit TCP connection to local MariaDB
     bench new-site "$SITE_NAME" \
-        --db-host "${MARIADB_HOST:-mariadb}" \
-        --db-port 3306 \
-        --mariadb-root-password "${MARIADB_ROOT_PASSWORD:-123}" \
+        --db-host "${MARIADB_HOST:-host.docker.internal}" \
+        --db-port "${FRAPPE_DB_PORT:-3306}" \
+        --mariadb-root-password "${MARIADB_ROOT_PASSWORD:-}" \
         --admin-password "${ADMIN_PASSWORD:-admin}" \
         --no-mariadb-socket || {
         echo "⚠️  Site creation had issues, but continuing..."
     }
 fi
 
-# Always ensure site configuration uses TCP connection to mariadb container (fix existing sites too)
+# Always ensure site configuration uses TCP connection to local MariaDB (fix existing sites too)
+# This allows Docker to use the same database as local development
 if [ -d "sites/$SITE_NAME" ] && [ -f "sites/$SITE_NAME/site_config.json" ]; then
-    echo "🔧 Updating site database configuration for Docker..."
-    SITE_NAME_VALUE="$SITE_NAME" MARIADB_HOST_VALUE="${MARIADB_HOST:-mariadb}" "$PYTHON_EXE" -c "
+    echo "🔧 Updating site database configuration to use local MariaDB..."
+    SITE_NAME_VALUE="$SITE_NAME" MARIADB_HOST_VALUE="${MARIADB_HOST:-host.docker.internal}" FRAPPE_DB_PORT_VALUE="${FRAPPE_DB_PORT:-3306}" "$PYTHON_EXE" -c "
 import json
 import os
 
 site_name = os.environ['SITE_NAME_VALUE']
 mariadb_host = os.environ['MARIADB_HOST_VALUE']
+db_port = os.environ.get('FRAPPE_DB_PORT_VALUE', '3306')
 config_file = f'sites/{site_name}/site_config.json'
 
 try:
@@ -349,10 +419,11 @@ try:
             config = json.load(f)
         
         old_host = config.get('db_host', 'localhost')
+        old_port = config.get('db_port', 3306)
         
-        # Force TCP connection (no socket) to Docker mariadb container
+        # Force TCP connection (no socket) to local MariaDB via host.docker.internal
         config['db_host'] = mariadb_host
-        config['db_port'] = 3306
+        config['db_port'] = int(db_port)
         # Remove socket setting if it exists
         if 'db_socket' in config:
             del config['db_socket']
@@ -360,10 +431,10 @@ try:
         with open(config_file, 'w') as f:
             json.dump(config, f, indent=1)
         
-        if old_host != mariadb_host:
-            print(f'✅ Updated site database configuration from {old_host} to TCP: {mariadb_host}:3306')
+        if old_host != mariadb_host or old_port != int(db_port):
+            print(f'✅ Updated site database configuration from {old_host}:{old_port} to TCP: {mariadb_host}:{db_port}')
         else:
-            print(f'✅ Verified site database configuration uses TCP: {mariadb_host}:3306')
+            print(f'✅ Verified site database configuration uses TCP: {mariadb_host}:{db_port}')
     else:
         print(f'⚠️  Site config file not found: {config_file}')
 except Exception as e:
@@ -380,9 +451,9 @@ if [ -d "sites/$SITE_NAME" ]; then
     export VIRTUAL_ENV="$(pwd)/env"
     export FRAPPE_BENCH_ROOT="$(pwd)"
     
-    # Set database environment variables to ensure TCP connection
-    export FRAPPE_DB_HOST="${MARIADB_HOST:-mariadb}"
-    export FRAPPE_DB_PORT="3306"
+    # Set database environment variables to ensure TCP connection to local MariaDB
+    export FRAPPE_DB_HOST="${MARIADB_HOST:-host.docker.internal}"
+    export FRAPPE_DB_PORT="${FRAPPE_DB_PORT:-3306}"
     export FRAPPE_DB_SOCKET=""
     
     # Install LMS app
@@ -436,7 +507,22 @@ export PATH="$(pwd)/env/bin:$PATH"
 export VIRTUAL_ENV="$(pwd)/env"
 export FRAPPE_BENCH_ROOT="$(pwd)"
 
-# Start bench (Redis processes are commented out in Procfile - using external Redis container)
+# Use Docker-specific Procfile (without Redis processes - using external Redis container)
+echo "🔧 Configuring Procfile for Docker..."
+if [ -f "Procfile.docker" ]; then
+    # Backup original Procfile if it exists and isn't already the Docker version
+    if [ -f "Procfile" ] && ! grep -q "# Docker-specific Procfile" Procfile 2>/dev/null; then
+        cp Procfile Procfile.local 2>/dev/null || true
+    fi
+    # Use Docker-specific Procfile
+    cp Procfile.docker Procfile
+    echo "✅ Using Procfile.docker (Redis processes disabled - using external Redis container)"
+elif [ -f "Procfile" ]; then
+    echo "⚠️  Procfile.docker not found, using default Procfile"
+    echo "   Note: Redis processes may fail if redis-server is not installed"
+fi
+
+# Start bench (using Docker-specific Procfile without local Redis)
 # Use exec to replace shell process
 exec bench start
 

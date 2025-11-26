@@ -1,5 +1,6 @@
-redis_cache: ./bench-manage.sh redis-cache
-redis_queue: ./bench-manage.sh redis-queue
+# Docker-specific Procfile - Redis processes disabled (using external Redis container)
+# redis_cache: ./bench-manage.sh redis-cache
+# redis_queue: ./bench-manage.sh redis-queue
 
 web: bench serve --port 8000
 

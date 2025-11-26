@@ -1,15 +1,7 @@
 [
-    "tabIndustry",
-    "tabFunction",
-    "tabCustom",
-    "tabNavbar",
-    "tabNavbar Item",
-    "tabTag",
-    "tabCustom Field",
-    "tabTag Link",
-    "tabLMS",
+    "tabInstalled",
     "tabInstalled Application",
+    "tabNavbar Item",
     "tabSingles",
-    "tabLMS Category",
-    "tabInstalled"
+    "tabNavbar"
 ]
