@@ -83,8 +83,8 @@ PYEOF
         fi
         
         if [ $attempt -lt $max_attempts ]; then
-            echo "   Attempt $attempt/$max_attempts: Waiting for MariaDB..."
-            sleep 2
+        echo "   Attempt $attempt/$max_attempts: Waiting for MariaDB..."
+        sleep 2
         fi
         attempt=$((attempt + 1))
     done
