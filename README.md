@@ -175,6 +175,28 @@ bench --site vgi.local mariadb
 
 ## 🗄️ Database Management
 
+### Database Connection Details
+
+**Site:** `vgi.local`
+
+**Local Development:**
+- **Host**: `127.0.0.1`
+- **Port**: `3306`
+- **Database**: `_517a1fbab7ba0c04`
+- **Username**: `_517a1fbab7ba0c04`
+- **Password**: `yIawHBFVcaiAKaJw`
+
+**Connection String:**
+```
+mysql://_517a1fbab7ba0c04:yIawHBFVcaiAKaJw@127.0.0.1:3306/_517a1fbab7ba0c04
+```
+
+**MariaDB Root Access:**
+- **Host**: `127.0.0.1` or `localhost`
+- **Port**: `3306`
+- **Username**: `root`
+- **Password**: (empty - no password)
+
 ### Quick Access
 
 ```bash
@@ -185,6 +207,14 @@ cd frappe-bench
 ./access_database.sh info               # Database information
 ./access_database.sh tables             # List all tables
 ./access_database.sh backup             # Create backup
+
+# Direct MySQL connection
+mysql -h 127.0.0.1 -P 3306 -u _517a1fbab7ba0c04 -pyIawHBFVcaiAKaJw _517a1fbab7ba0c04
+
+# Connect as root (if no password)
+mysql -u root
+# OR
+sudo mysql -u root
 ```
 
 ### Using Bench Commands
@@ -196,6 +226,23 @@ bench --site vgi.local mariadb
 # Open Python console with DB access
 bench --site vgi.local console
 ```
+
+### Database Setup
+
+**Create Database User:**
+```bash
+cd frappe-bench
+mysql -u root < create_db_user.sql
+# OR if root has password
+mysql -u root -p < create_db_user.sql
+```
+
+**Reset MariaDB Root Password (if needed):**
+```bash
+sudo mysql -e "ALTER USER 'root'@'localhost' IDENTIFIED BY '';"
+```
+
+For detailed database connection information, see [frappe-bench/DATABASE_CONNECTION_GUIDE.md](frappe-bench/DATABASE_CONNECTION_GUIDE.md)
 
 ## 🐳 Docker Development
 
@@ -250,9 +297,21 @@ Payment gateway integration supporting:
 - Password: `admin`
 
 **Database:**
-- Database: `_2ca05118bd4124f3`
-- User: `_2ca05118bd4124f3`
-- Password: `vAhQPAHJpRcIsQmi`
+- **Host**: `127.0.0.1`
+- **Port**: `3306`
+- **Database**: `_517a1fbab7ba0c04`
+- **User**: `_517a1fbab7ba0c04`
+- **Password**: `yIawHBFVcaiAKaJw`
+
+**Connection Command:**
+```bash
+mysql -h 127.0.0.1 -P 3306 -u _517a1fbab7ba0c04 -pyIawHBFVcaiAKaJw _517a1fbab7ba0c04
+```
+
+**MariaDB Root:**
+- **Username**: `root`
+- **Password**: (empty - no password)
+- **Command**: `mysql -u root` or `sudo mysql -u root`
 
 ## 🐛 Troubleshooting
 
@@ -262,9 +321,33 @@ Payment gateway integration supporting:
 ```
 
 ### Database Connection Error
+
+**Create/Reset Database User:**
 ```bash
+cd frappe-bench
 mysql -u root < create_db_user.sql
+# OR if root has password
+mysql -u root -p < create_db_user.sql
 ```
+
+**Check Database Connection:**
+```bash
+mysql -h 127.0.0.1 -P 3306 -u _517a1fbab7ba0c04 -pyIawHBFVcaiAKaJw _517a1fbab7ba0c04 -e "SELECT 1"
+```
+
+**Check if MariaDB is Running:**
+```bash
+brew services list | grep mariadb
+# Start if not running
+brew services start mariadb
+```
+
+**Verify Database User Exists:**
+```bash
+mysql -u root -e "SELECT User, Host FROM mysql.user WHERE User = '_517a1fbab7ba0c04';"
+```
+
+For more database troubleshooting, see [frappe-bench/DATABASE_CONNECTION_GUIDE.md](frappe-bench/DATABASE_CONNECTION_GUIDE.md)
 
 ### Missing Dependencies
 ```bash
