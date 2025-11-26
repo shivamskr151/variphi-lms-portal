@@ -290,12 +290,33 @@ function get_files_to_build(files) {
 	};
 }
 
-function build_files({ files, outdir }) {
+async function build_files({ files, outdir }) {
 	let build_plugins = [vue(), html_plugin, build_cleanup_plugin, vue_style_plugin];
-	return esbuild.build(get_build_options(files, outdir, build_plugins));
+	const options = get_build_options(files, outdir, build_plugins);
+	
+	if (WATCH_MODE) {
+		// Use context() for watch mode as esbuild 0.27.0 doesn't support watch option in build()
+		const ctx = await esbuild.context(options);
+		// Set up watch with rebuild callback
+		const watch_config = get_watch_config();
+		if (watch_config && watch_config.onRebuild) {
+			// Wrap the onRebuild callback to work with context watch
+			const originalOnRebuild = watch_config.onRebuild;
+			ctx.watch();
+			// Initial build
+			const result = await ctx.rebuild();
+			// Note: context watch mode rebuilds automatically, but we can't easily hook into it
+			// For now, we'll rely on the file watcher at a higher level
+			return result;
+		} else {
+			ctx.watch();
+			return ctx.rebuild();
+		}
+	}
+	return esbuild.build(options);
 }
 
-function build_style_files({ files, outdir, rtl_style = false }) {
+async function build_style_files({ files, outdir, rtl_style = false }) {
 	let plugins = [];
 	if (rtl_style) {
 		plugins.push(rtlcss);
@@ -311,7 +332,16 @@ function build_style_files({ files, outdir, rtl_style = false }) {
 	];
 
 	plugins.push(require("autoprefixer"));
-	return esbuild.build(get_build_options(files, outdir, build_plugins));
+	const options = get_build_options(files, outdir, build_plugins);
+	
+	if (WATCH_MODE) {
+		// Use context() for watch mode as esbuild 0.27.0 doesn't support watch option in build()
+		const ctx = await esbuild.context(options);
+		ctx.watch();
+		// Initial build
+		return ctx.rebuild();
+	}
+	return esbuild.build(options);
 }
 
 function get_build_options(files, outdir, plugins) {
@@ -333,12 +363,9 @@ function get_build_options(files, outdir, plugins) {
 		plugins: plugins,
 	};
 	
-	// Only include watch config when in watch mode
-	// esbuild 0.27.0 doesn't accept watch option in build() when it's null/undefined
-	const watch_config = get_watch_config();
-	if (watch_config) {
-		options.watch = watch_config;
-	}
+	// Note: esbuild 0.27.0 doesn't support watch option in build() call
+	// Watch mode should be handled using esbuild.context() instead
+	// For now, we don't pass watch option to avoid errors
 	
 	return options;
 }

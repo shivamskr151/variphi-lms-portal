@@ -43,6 +43,37 @@ fi
 
 echo "✅ Bench structure verified"
 
+# Initialize git repositories for apps if they don't exist
+# Bench expects apps to be git repositories, so we create them if missing
+echo "🔧 Checking git repositories for apps..."
+if command -v git >/dev/null 2>&1; then
+    for app_dir in apps/*/; do
+        if [ -d "$app_dir" ]; then
+            app_name=$(basename "$app_dir")
+            if [ ! -d "$app_dir/.git" ]; then
+                echo "   Initializing git repository for $app_name..."
+                cd "$app_dir" || continue
+                if git init --quiet 2>/dev/null; then
+                    git config user.email "frappe@localhost" 2>/dev/null || true
+                    git config user.name "Frappe" 2>/dev/null || true
+                    # Add all files and create initial commit
+                    git add . >/dev/null 2>&1 || true
+                    git commit -m "Initial commit" --allow-empty --quiet >/dev/null 2>&1 || true
+                    echo "   ✅ Git repository initialized for $app_name"
+                else
+                    echo "   ⚠️  Failed to initialize git repository for $app_name"
+                fi
+                cd "$BENCH_DIR" || exit 1
+            else
+                echo "   ✅ $app_name already has a git repository"
+            fi
+        fi
+    done
+else
+    echo "   ⚠️  Git not found, skipping git repository initialization"
+    echo "   ⚠️  This may cause issues with bench setup requirements"
+fi
+
 # Setup Python environment if it doesn't exist
 if [ ! -d "env" ] || [ ! -f "env/bin/python" ] || [ ! -f "env/bin/python3" ]; then
     echo "🐍 Setting up Python virtual environment..."
