@@ -28,7 +28,7 @@ All code is tracked in a single repository, giving you complete control over all
 After creating the repository, GitHub will show you commands. Use these:
 
 ```bash
-cd /Users/shivam/Downloads/test_lms/frappe-bench
+cd frappe-bench
 
 # Add the remote repository (replace YOUR_USERNAME and REPO_NAME)
 git remote add origin https://github.com/YOUR_USERNAME/REPO_NAME.git

@@ -134,8 +134,27 @@ cmd_fix_env() {
     
     # Fix Windows path references in activation scripts
     log_info "Fixing path references in activation scripts..."
-    OLD_PATH="${OLD_BENCH_PATH:-/mnt/d/Company/Variphi/test_lms/frappe-bench}"
+    # Only use OLD_BENCH_PATH if explicitly set, otherwise detect from activation scripts
+    if [ -z "$OLD_BENCH_PATH" ]; then
+        # Try to detect old path from activation script if it exists
+        if [ -f "$ENV_DIR/bin/activate" ]; then
+            # Use sed for portability (works on both macOS and Linux)
+            OLD_PATH=$(grep '^VIRTUAL_ENV=' "$ENV_DIR/bin/activate" 2>/dev/null | sed 's/^VIRTUAL_ENV="\(.*\)"$/\1/' | head -1 || echo "")
+        else
+            OLD_PATH=""
+        fi
+    else
+        OLD_PATH="$OLD_BENCH_PATH"
+    fi
     NEW_PATH="$BENCH_DIR"
+    
+    # Only proceed if we have an old path to replace and it's different from new path
+    if [ -z "$OLD_PATH" ] || [ "$OLD_PATH" = "$NEW_PATH" ]; then
+        log_info "No path replacement needed"
+        return 0
+    fi
+    
+    log_info "Replacing old path: $OLD_PATH with new path: $NEW_PATH"
     
     # Fix shebang lines in all scripts
     if [[ "$OSTYPE" == "darwin"* ]]; then

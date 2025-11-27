@@ -53,7 +53,7 @@ To upload this project to GitHub and maintain full control over your source code
 
 2. **Create Database User:**
    ```bash
-   cd /Users/shivam/Downloads/test_lms/frappe-bench
+   cd frappe-bench
    mysql -u root < create_db_user.sql
    ```
 
@@ -66,7 +66,7 @@ To upload this project to GitHub and maintain full control over your source code
 4. **Run Migrations (Terminal 2):**
    Open a new terminal and run:
    ```bash
-   cd /Users/shivam/Downloads/test_lms/frappe-bench
+   cd frappe-bench
    bench --site vgi.local migrate
    ```
 
@@ -79,7 +79,7 @@ To upload this project to GitHub and maintain full control over your source code
 
 After resetting the password:
 ```bash
-cd /Users/shivam/Downloads/test_lms/frappe-bench && \
+cd frappe-bench && \
 mysql -u root < create_db_user.sql && \
 bench --site vgi.local migrate && \
 bench start
@@ -91,7 +91,7 @@ bench start
 
 **Easiest Way - Use the access script:**
 ```bash
-cd /Users/shivam/Downloads/test_lms/frappe-bench
+cd frappe-bench
 ./access_database.sh                    # Open interactive MySQL shell
 ./access_database.sh info               # Show database information
 ./access_database.sh tables             # List all tables
@@ -127,20 +127,20 @@ If the database user doesn't exist, create it:
 
 **Option A - If you know the root password:**
 ```bash
-cd /Users/shivam/Downloads/test_lms/frappe-bench
+cd frappe-bench
 mysql -u root -p < create_db_user.sql
 ```
 (Enter your MariaDB root password when prompted)
 
 **Option B - If root has no password:**
 ```bash
-cd /Users/shivam/Downloads/test_lms/frappe-bench
+cd frappe-bench
 mysql -u root < create_db_user.sql
 ```
 
 **Option C - Using sudo:**
 ```bash
-cd /Users/shivam/Downloads/test_lms/frappe-bench
+cd frappe-bench
 sudo mysql < create_db_user.sql
 ```
 
