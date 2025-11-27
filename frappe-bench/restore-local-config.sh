@@ -55,7 +55,13 @@ if os.path.exists(config_file):
 PYTHON_SCRIPT
 
 # Update all site_config.json files (Database)
-# Connect to Docker MariaDB on localhost:3307
+python3 << 'PYTHON_SCRIPT2'
+import json
+import os
+import glob
+import socket
+
+# Update all site configs
 site_configs = glob.glob("sites/*/site_config.json")
 for site_config in site_configs:
     try:
@@ -63,10 +69,9 @@ for site_config in site_configs:
             config = json.load(f)
         
         # Update database host to use local MariaDB (auto-detect port)
-        if config.get('db_host') == 'mariadb':
+        if config.get('db_host') == 'mariadb' or config.get('db_host') == 'host.docker.internal':
             config['db_host'] = '127.0.0.1'
             # Auto-detect port: check which port MariaDB is running on
-            import socket
             db_port = 3306  # default
             for port in [3306, 3307]:
                 try:
@@ -86,8 +91,7 @@ for site_config in site_configs:
             print(f"✅ Updated {site_name} database config: 127.0.0.1:{db_port}")
     except Exception as e:
         print(f"⚠️  Could not update {site_config}: {e}")
-
-PYTHON_SCRIPT
+PYTHON_SCRIPT2
 
 echo ""
 echo "✅ Local configuration restored!"

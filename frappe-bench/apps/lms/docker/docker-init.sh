@@ -10,12 +10,48 @@ cd "$BENCH_DIR" || exit 1
 # Set environment variables early
 export FRAPPE_BENCH_ROOT="$BENCH_DIR"
 
+# Load .env file if it exists (mounted from host)
+echo "📋 Loading environment variables from .env file..."
+if [ -f "$BENCH_DIR/.env" ]; then
+    set -a
+    source "$BENCH_DIR/.env"
+    set +a
+    echo "✅ Loaded .env file"
+else
+    echo "⚠️  .env file not found, using environment variables from docker-compose"
+fi
+
+# Map DB_* variables to FRAPPE_DB_* if FRAPPE_DB_* are not set
+# This allows using either naming convention
+if [ -z "$FRAPPE_DB_HOST" ] && [ -n "$DB_HOST" ]; then
+    export FRAPPE_DB_HOST="$DB_HOST"
+fi
+if [ -z "$FRAPPE_DB_PORT" ] && [ -n "$DB_PORT" ]; then
+    export FRAPPE_DB_PORT="$DB_PORT"
+fi
+if [ -z "$FRAPPE_DB_NAME" ] && [ -n "$DB_NAME" ]; then
+    export FRAPPE_DB_NAME="$DB_NAME"
+fi
+if [ -z "$FRAPPE_DB_USER" ] && [ -n "$DB_USER" ]; then
+    export FRAPPE_DB_USER="$DB_USER"
+fi
+if [ -z "$FRAPPE_DB_PASSWORD" ] && [ -n "$DB_PASSWORD" ]; then
+    export FRAPPE_DB_PASSWORD="$DB_PASSWORD"
+fi
+
+# Override DB_HOST for Docker - use host.docker.internal to connect to local MariaDB
+# This is critical for Docker containers to access the host's MariaDB
+if [ -z "$FRAPPE_DB_HOST" ] || [ "$FRAPPE_DB_HOST" = "127.0.0.1" ] || [ "$FRAPPE_DB_HOST" = "localhost" ]; then
+    export FRAPPE_DB_HOST="${MARIADB_HOST:-host.docker.internal}"
+    echo "🔧 Updated FRAPPE_DB_HOST to $FRAPPE_DB_HOST for Docker"
+fi
+
 echo "🚀 Initializing Frappe Bench in Docker..."
 
 # Function to wait for MariaDB (local or Docker)
 wait_for_mariadb() {
-    local db_host="${MARIADB_HOST:-host.docker.internal}"
-    local db_port="${FRAPPE_DB_PORT:-3306}"
+    local db_host="${FRAPPE_DB_HOST:-${MARIADB_HOST:-host.docker.internal}}"
+    local db_port="${FRAPPE_DB_PORT:-${DB_PORT:-3306}}"
     local db_root_password="${MARIADB_ROOT_PASSWORD:-}"
     
     echo "⏳ Checking MariaDB connection at $db_host:$db_port..."
@@ -363,10 +399,8 @@ if [ -d "sites/$SITE_NAME" ]; then
     export PATH="$(pwd)/env/bin:$PATH"
     export VIRTUAL_ENV="$(pwd)/env"
     export FRAPPE_BENCH_ROOT="$(pwd)"
-    # Use host.docker.internal to connect to local MariaDB (macOS/Windows)
-    # This allows Docker to use the same database as local development
-    export FRAPPE_DB_HOST="${MARIADB_HOST:-host.docker.internal}"
-    export FRAPPE_DB_PORT="${FRAPPE_DB_PORT:-3306}"
+    # Use database credentials from .env file (already loaded above)
+    # FRAPPE_DB_HOST, FRAPPE_DB_PORT, etc. are already set from .env
     export FRAPPE_DB_SOCKET=""
     
     # Try to connect to database
@@ -388,16 +422,17 @@ if [ "$SITE_EXISTS" = false ]; then
     export VIRTUAL_ENV="$(pwd)/env"
     export FRAPPE_BENCH_ROOT="$(pwd)"
     
-    # Set database environment variables to ensure TCP connection
-    # Use host.docker.internal to connect to local MariaDB
-    export FRAPPE_DB_HOST="${MARIADB_HOST:-host.docker.internal}"
-    export FRAPPE_DB_PORT="${FRAPPE_DB_PORT:-3306}"
+    # Database environment variables are already set from .env file
+    # Ensure TCP connection (no socket)
     export FRAPPE_DB_SOCKET=""
     
-    # Create site with explicit TCP connection to local MariaDB
+    # Create site with database credentials from .env file
     bench new-site "$SITE_NAME" \
-        --db-host "${MARIADB_HOST:-host.docker.internal}" \
-        --db-port "${FRAPPE_DB_PORT:-3306}" \
+        --db-host "${FRAPPE_DB_HOST:-host.docker.internal}" \
+        --db-port "${FRAPPE_DB_PORT:-${DB_PORT:-3306}}" \
+        --db-name "${FRAPPE_DB_NAME}" \
+        --db-user "${FRAPPE_DB_USER}" \
+        --db-password "${FRAPPE_DB_PASSWORD}" \
         --mariadb-root-password "${MARIADB_ROOT_PASSWORD:-}" \
         --admin-password "${ADMIN_PASSWORD:-admin}" \
         --no-mariadb-socket || {
@@ -408,14 +443,23 @@ fi
 # Always ensure site configuration uses TCP connection to local MariaDB (fix existing sites too)
 # This allows Docker to use the same database as local development
 if [ -d "sites/$SITE_NAME" ] && [ -f "sites/$SITE_NAME/site_config.json" ]; then
-    echo "🔧 Updating site database configuration to use local MariaDB..."
-    SITE_NAME_VALUE="$SITE_NAME" MARIADB_HOST_VALUE="${MARIADB_HOST:-host.docker.internal}" FRAPPE_DB_PORT_VALUE="${FRAPPE_DB_PORT:-3306}" "$PYTHON_EXE" -c "
+    echo "🔧 Updating site database configuration to use database from .env file..."
+    SITE_NAME_VALUE="$SITE_NAME" \
+    FRAPPE_DB_HOST_VALUE="${FRAPPE_DB_HOST:-host.docker.internal}" \
+    FRAPPE_DB_PORT_VALUE="${FRAPPE_DB_PORT:-${DB_PORT:-3306}}" \
+    FRAPPE_DB_NAME_VALUE="${FRAPPE_DB_NAME}" \
+    FRAPPE_DB_USER_VALUE="${FRAPPE_DB_USER}" \
+    FRAPPE_DB_PASSWORD_VALUE="${FRAPPE_DB_PASSWORD}" \
+    "$PYTHON_EXE" -c "
 import json
 import os
 
 site_name = os.environ['SITE_NAME_VALUE']
-mariadb_host = os.environ['MARIADB_HOST_VALUE']
-db_port = os.environ.get('FRAPPE_DB_PORT_VALUE', '3306')
+db_host = os.environ.get('FRAPPE_DB_HOST_VALUE', 'host.docker.internal')
+db_port = int(os.environ.get('FRAPPE_DB_PORT_VALUE', os.environ.get('DB_PORT', '3306')))
+db_name = os.environ.get('FRAPPE_DB_NAME_VALUE', '')
+db_user = os.environ.get('FRAPPE_DB_USER_VALUE', '')
+db_password = os.environ.get('FRAPPE_DB_PASSWORD_VALUE', '')
 config_file = f'sites/{site_name}/site_config.json'
 
 try:
@@ -424,11 +468,19 @@ try:
             config = json.load(f)
         
         old_host = config.get('db_host', 'localhost')
-        old_port = config.get('db_port', 3306)
+        old_port = config.get('db_port', int(os.environ.get('DB_PORT', '3306')))
+        old_name = config.get('db_name', '')
+        old_user = config.get('db_user', '')
         
-        # Force TCP connection (no socket) to local MariaDB via host.docker.internal
-        config['db_host'] = mariadb_host
-        config['db_port'] = int(db_port)
+        # Update database configuration from .env file
+        config['db_host'] = db_host
+        config['db_port'] = db_port
+        if db_name:
+            config['db_name'] = db_name
+        if db_user:
+            config['db_user'] = db_user
+        if db_password:
+            config['db_password'] = db_password
         # Remove socket setting if it exists
         if 'db_socket' in config:
             del config['db_socket']
@@ -436,10 +488,18 @@ try:
         with open(config_file, 'w') as f:
             json.dump(config, f, indent=1)
         
-        if old_host != mariadb_host or old_port != int(db_port):
-            print(f'✅ Updated site database configuration from {old_host}:{old_port} to TCP: {mariadb_host}:{db_port}')
+        changes = []
+        if old_host != db_host or old_port != db_port:
+            changes.append(f'host:port from {old_host}:{old_port} to {db_host}:{db_port}')
+        if db_name and old_name != db_name:
+            changes.append(f'database from {old_name} to {db_name}')
+        if db_user and old_user != db_user:
+            changes.append(f'user from {old_user} to {db_user}')
+        
+        if changes:
+            print(f'✅ Updated site database configuration: {\", \".join(changes)}')
         else:
-            print(f'✅ Verified site database configuration uses TCP: {mariadb_host}:{db_port}')
+            print(f'✅ Verified site database configuration uses: {db_host}:{db_port}/{db_name}')
     else:
         print(f'⚠️  Site config file not found: {config_file}')
 except Exception as e:
@@ -456,9 +516,8 @@ if [ -d "sites/$SITE_NAME" ]; then
     export VIRTUAL_ENV="$(pwd)/env"
     export FRAPPE_BENCH_ROOT="$(pwd)"
     
-    # Set database environment variables to ensure TCP connection to local MariaDB
-    export FRAPPE_DB_HOST="${MARIADB_HOST:-host.docker.internal}"
-    export FRAPPE_DB_PORT="${FRAPPE_DB_PORT:-3306}"
+    # Database environment variables are already set from .env file
+    # Ensure TCP connection (no socket)
     export FRAPPE_DB_SOCKET=""
     
     # Install LMS app
@@ -487,15 +546,68 @@ if [ -d "sites/$SITE_NAME" ]; then
     bench --site "$SITE_NAME" clear-cache 2>&1 || true
 fi
 
-# Build assets
-echo "🎨 Building assets..."
+# Ensure asset symlinks exist before building
+echo "🔗 Ensuring asset symlinks..."
 export PATH="$(pwd)/env/bin:$PATH"
 export VIRTUAL_ENV="$(pwd)/env"
 export FRAPPE_BENCH_ROOT="$(pwd)"
+# Create asset symlinks if they don't exist
+if [ ! -L "sites/assets/frappe" ] && [ -d "apps/frappe/frappe/public" ]; then
+    ln -sf "$(pwd)/apps/frappe/frappe/public" "sites/assets/frappe" 2>/dev/null || true
+    echo "   ✅ Created frappe asset symlink"
+fi
+if [ ! -L "sites/assets/lms" ] && [ -d "apps/lms/lms/public" ]; then
+    ln -sf "$(pwd)/apps/lms/lms/public" "sites/assets/lms" 2>/dev/null || true
+    echo "   ✅ Created lms asset symlink"
+fi
 
-bench build --app lms 2>&1 || {
-    echo "⚠️  Asset build had issues, but continuing..."
-}
+# Build assets (ensure CSS/JS bundles exist)
+echo "🎨 Building assets..."
+
+# Check if assets need to be built
+ASSETS_NEED_BUILD=false
+ASSETS_JSON="sites/assets/assets.json"
+
+if [ ! -f "$ASSETS_JSON" ] || [ ! -s "$ASSETS_JSON" ]; then
+    ASSETS_NEED_BUILD=true
+    echo "   assets.json missing or empty, assets need to be built"
+else
+    # Check if CSS bundle directories exist
+    if [ ! -d "sites/assets/frappe/dist/css" ] || [ -z "$(ls -A sites/assets/frappe/dist/css 2>/dev/null)" ]; then
+        ASSETS_NEED_BUILD=true
+        echo "   Frappe CSS bundles missing, assets need to be built"
+    elif [ ! -d "sites/assets/lms/dist/css" ] || [ -z "$(ls -A sites/assets/lms/dist/css 2>/dev/null)" ]; then
+        ASSETS_NEED_BUILD=true
+        echo "   LMS CSS bundles missing, assets need to be built"
+    fi
+fi
+
+if [ "$ASSETS_NEED_BUILD" = true ]; then
+    echo "   Building all assets (this may take a few minutes)..."
+    # Build assets for all apps (frappe and lms)
+    # Use --force to ensure fresh build
+    if bench build --force 2>&1; then
+        echo "✅ Assets built successfully"
+        # Update assets.json to ensure it's in sync
+        bench build --using-cached > /dev/null 2>&1 || true
+        # Clear cache after building
+        bench --site "$SITE_NAME" clear-cache 2>/dev/null || true
+    else
+        echo "⚠️  Asset build with --force had issues, trying without --force..."
+        # Try without --force as fallback
+        if bench build 2>&1; then
+            echo "✅ Assets built successfully (without --force)"
+            # Update assets.json to ensure it's in sync
+            bench build --using-cached > /dev/null 2>&1 || true
+            bench --site "$SITE_NAME" clear-cache 2>/dev/null || true
+        else
+            echo "⚠️  Asset build failed, but continuing..."
+            echo "   You can manually build assets later with: bench build"
+        fi
+    fi
+else
+    echo "✅ Assets are up to date"
+fi
 
 echo "✅ Initialization complete!"
 echo "🚀 Starting Frappe Bench..."

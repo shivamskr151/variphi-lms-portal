@@ -130,6 +130,17 @@ LIVE_RELOAD="${LIVE_RELOAD:-true}"
 SERVE_DEFAULT_SITE="${SERVE_DEFAULT_SITE:-true}"
 DOCKER_MODE="${DOCKER_MODE:-false}"
 
+# Redis Ports (for local development)
+REDIS_CACHE_PORT="${REDIS_CACHE_PORT:-13000}"
+REDIS_QUEUE_PORT="${REDIS_QUEUE_PORT:-11000}"
+
+# Generate Redis URLs from ports
+# Always construct from ports to ensure correct values (ignore any existing wrong values)
+# This prevents issues when switching from Docker to local
+REDIS_CACHE="redis://127.0.0.1:${REDIS_CACHE_PORT}"
+REDIS_QUEUE="redis://127.0.0.1:${REDIS_QUEUE_PORT}"
+REDIS_SOCKETIO="redis://127.0.0.1:${REDIS_QUEUE_PORT}"
+
 # Detect if running in Docker
 if [ "$DOCKER_MODE" = "true" ] || [ -f "/.dockerenv" ]; then
     log_info "Docker mode detected"

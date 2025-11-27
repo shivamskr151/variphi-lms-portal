@@ -15,7 +15,7 @@ services:
     volumes:
       - mariadb-data:/var/lib/mysql
     ports:
-      - "3307:3306"  # Host port 3307 -> Container port 3306 (3306 already in use locally)
+      - "${DOCKER_DB_PORT:-3307}:3306"  # Host port from .env -> Container port 3306
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "sh", "-c", "mysqladmin ping -h localhost -uroot -p${MARIADB_ROOT_PASSWORD:-123}"]
@@ -31,7 +31,7 @@ services:
     volumes:
       - redis-data:/data
     ports:
-      - "6380:6379"  # Host port 6380 -> Container port 6379 (6379 already in use locally)
+      - "${DOCKER_REDIS_PORT:-6380}:6379"  # Host port from .env -> Container port 6379
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
@@ -45,16 +45,23 @@ services:
       dockerfile: apps/lms/docker/Dockerfile
     image: lms-frappe:latest
     container_name: lms-frappe
+    env_file:
+      - ../../../.env  # Load environment variables from .env file
     environment:
       - PYTHONUNBUFFERED=1
       - SHELL=/bin/bash
       # Use host.docker.internal to connect to local MariaDB (macOS/Windows)
       # On Linux, use host network mode or gateway IP
+      # Override DB_HOST for Docker - use host.docker.internal instead of 127.0.0.1
       - MARIADB_HOST=${MARIADB_HOST:-host.docker.internal}
       - MARIADB_ROOT_PASSWORD=${MARIADB_ROOT_PASSWORD:-}
-      - FRAPPE_DB_HOST=${FRAPPE_DB_HOST:-host.docker.internal}
-      - FRAPPE_DB_PORT=${FRAPPE_DB_PORT:-3306}
+      - FRAPPE_DB_HOST=${MARIADB_HOST:-host.docker.internal}
+      - FRAPPE_DB_PORT=${FRAPPE_DB_PORT:-${DB_PORT:-3306}}
+      - FRAPPE_DB_NAME=${FRAPPE_DB_NAME:-${DB_NAME}}
+      - FRAPPE_DB_USER=${FRAPPE_DB_USER:-${DB_USER}}
+      - FRAPPE_DB_PASSWORD=${FRAPPE_DB_PASSWORD:-${DB_PASSWORD}}
       - FRAPPE_DB_SOCKET=
+      - SITE_NAME=${SITE_NAME:-vgi.local}
       - REDIS_CACHE=${REDIS_CACHE:-redis://redis:6379}
       - REDIS_QUEUE=${REDIS_QUEUE:-redis://redis:6379}
       - REDIS_SOCKETIO=${REDIS_SOCKETIO:-redis://redis:6379}
@@ -70,10 +77,10 @@ services:
       # Note: env/ directory will be created in container, not mounted
       # This allows it to be properly initialized without volume conflicts
     ports:
-      - "8000:8000"   # Web server
-      - "9000:9000"   # SocketIO
-      - "5173:5173"   # Frontend Vite dev server
-      - "6787:6787"   # File watcher
+      - "${WEBSERVER_PORT:-8000}:8000"   # Web server
+      - "${SOCKETIO_PORT:-9000}:9000"   # SocketIO
+      - "${VITE_PORT:-5173}:5173"   # Frontend Vite dev server
+      - "${FILE_WATCHER_PORT:-6787}:6787"   # File watcher
     depends_on:
       redis:
         condition: service_healthy

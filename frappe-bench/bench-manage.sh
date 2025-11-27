@@ -17,7 +17,25 @@ if [ -f "$BENCH_DIR/.env" ]; then
 fi
 SITE_NAME="${SITE_NAME:-vgi.local}"
 WEBSERVER_PORT="${WEBSERVER_PORT:-8000}"
-SITE_HOST="${SITE_HOST:-http://127.0.0.1:${WEBSERVER_PORT}}"
+SITE_HOST="${SITE_HOST:-http://${DB_HOST:-127.0.0.1}:${WEBSERVER_PORT}}"
+
+# Map DB_* variables to FRAPPE_DB_* if FRAPPE_DB_* are not set
+# This allows using either naming convention
+if [ -z "$FRAPPE_DB_HOST" ] && [ -n "$DB_HOST" ]; then
+    export FRAPPE_DB_HOST="$DB_HOST"
+fi
+if [ -z "$FRAPPE_DB_PORT" ] && [ -n "$DB_PORT" ]; then
+    export FRAPPE_DB_PORT="$DB_PORT"
+fi
+if [ -z "$FRAPPE_DB_NAME" ] && [ -n "$DB_NAME" ]; then
+    export FRAPPE_DB_NAME="$DB_NAME"
+fi
+if [ -z "$FRAPPE_DB_USER" ] && [ -n "$DB_USER" ]; then
+    export FRAPPE_DB_USER="$DB_USER"
+fi
+if [ -z "$FRAPPE_DB_PASSWORD" ] && [ -n "$DB_PASSWORD" ]; then
+    export FRAPPE_DB_PASSWORD="$DB_PASSWORD"
+fi
 
 # Color codes for better output
 RED='\033[0;31m'
@@ -334,7 +352,11 @@ cmd_stop() {
     log_info "Stopping all bench processes..."
     
     # Kill processes on specific ports
-    lsof -ti:8000,9000,11000,13000 2>/dev/null | xargs kill -9 2>/dev/null || true
+    WEBSERVER_PORT="${WEBSERVER_PORT:-8000}"
+    SOCKETIO_PORT="${SOCKETIO_PORT:-9000}"
+    REDIS_QUEUE_PORT="${REDIS_QUEUE_PORT:-11000}"
+    REDIS_CACHE_PORT="${REDIS_CACHE_PORT:-13000}"
+    lsof -ti:"$WEBSERVER_PORT","$SOCKETIO_PORT","$REDIS_QUEUE_PORT","$REDIS_CACHE_PORT" 2>/dev/null | xargs kill -9 2>/dev/null || true
     
     # Kill bench-related processes
     pkill -f "bench start" 2>/dev/null || true
@@ -356,61 +378,65 @@ cmd_stop() {
 fix_database_port() {
     log_info "Auto-detecting database port..."
     
-    # Detect which port MariaDB is actually running on
-    DB_PORT=3306
-    if lsof -Pi :3306 -sTCP:LISTEN -t >/dev/null 2>&1; then
-        DB_PORT=3306
-        log_success "MariaDB detected on port 3306 (local)"
-    elif lsof -Pi :3307 -sTCP:LISTEN -t >/dev/null 2>&1; then
-        DB_PORT=3307
-        log_success "MariaDB detected on port 3307 (Docker)"
+    # Use DB_PORT from .env, or detect which port MariaDB is actually running on
+    DB_PORT="${DB_PORT:-3306}"
+    DOCKER_DB_PORT="${DOCKER_DB_PORT:-3307}"
+    
+    if lsof -Pi :"$DB_PORT" -sTCP:LISTEN -t >/dev/null 2>&1; then
+        log_success "MariaDB detected on port $DB_PORT (local)"
+    elif lsof -Pi :"$DOCKER_DB_PORT" -sTCP:LISTEN -t >/dev/null 2>&1; then
+        DB_PORT="$DOCKER_DB_PORT"
+        log_success "MariaDB detected on port $DB_PORT (Docker)"
     else
-        log_warning "MariaDB not detected on ports 3306 or 3307, using default 3306"
-        DB_PORT=3306
+        log_warning "MariaDB not detected on ports $DB_PORT or $DOCKER_DB_PORT, using default $DB_PORT"
     fi
     
     # Update all site configs to use the correct port
     if [ -d "$BENCH_DIR/sites" ]; then
         for site_config in "$BENCH_DIR/sites"/*/site_config.json; do
             if [ -f "$site_config" ]; then
-                CURRENT_PORT=$(python3 -c "import json; f=open('$site_config'); c=json.load(f); print(c.get('db_port', 3306)); f.close()" 2>/dev/null || echo "3306")
-                DB_HOST=$(python3 -c "import json; f=open('$site_config'); c=json.load(f); print(c.get('db_host', '127.0.0.1')); f.close()" 2>/dev/null || echo "127.0.0.1")
+                CURRENT_PORT=$(python3 -c "import json; f=open('$site_config'); c=json.load(f); print(c.get('db_port', ${DB_PORT:-3306})); f.close()" 2>/dev/null || echo "${DB_PORT:-3306}")
+                DB_HOST=$(python3 -c "import json; f=open('$site_config'); c=json.load(f); print(c.get('db_host', '${DB_HOST:-127.0.0.1}')); f.close()" 2>/dev/null || echo "${DB_HOST:-127.0.0.1}")
                 
                 # Fix host if it's set to Docker values (mariadb, host.docker.internal)
                 # or if port needs updating for local development
                 NEEDS_UPDATE=false
                 if [ "$DB_HOST" = "mariadb" ] || [ "$DB_HOST" = "host.docker.internal" ]; then
                     NEEDS_UPDATE=true
-                elif [ "$DB_HOST" = "127.0.0.1" ] || [ "$DB_HOST" = "localhost" ]; then
+                elif [ "$DB_HOST" = "${DB_HOST:-127.0.0.1}" ] || [ "$DB_HOST" = "localhost" ]; then
                     if [ "$CURRENT_PORT" != "$DB_PORT" ]; then
                         NEEDS_UPDATE=true
                     fi
                 fi
                 
                 if [ "$NEEDS_UPDATE" = true ]; then
+                    DB_HOST="${DB_HOST:-127.0.0.1}" \
+                    DB_PORT="$DB_PORT" \
                     python3 << PYEOF
 import json
+import os
 import sys
 
 try:
     with open('$site_config', 'r') as f:
         config = json.load(f)
     
-    old_host = config.get('db_host', '127.0.0.1')
-    old_port = config.get('db_port', 3306)
+    db_host = os.environ.get('DB_HOST', '127.0.0.1')
+    old_host = config.get('db_host', db_host)
+    old_port = config.get('db_port', int(os.environ.get('DB_PORT', '3306')))
     
     # Always set to local for local development
     config['db_port'] = $DB_PORT
-    config['db_host'] = '127.0.0.1'
+    config['db_host'] = db_host
     
     with open('$site_config', 'w') as f:
         json.dump(config, f, indent=1)
     
     site_name = '$site_config'.split('/')[-2]
-    if old_host != '127.0.0.1' or old_port != $DB_PORT:
-        print(f"   Updated {site_name}: {old_host}:{old_port} -> 127.0.0.1:$DB_PORT")
+    if old_host != db_host or old_port != $DB_PORT:
+        print(f"   Updated {site_name}: {old_host}:{old_port} -> {db_host}:$DB_PORT")
     else:
-        print(f"   Verified {site_name}: 127.0.0.1:$DB_PORT")
+        print(f"   Verified {site_name}: {db_host}:$DB_PORT")
 except Exception as e:
     print(f"   Error updating $site_config: {e}", file=sys.stderr)
     sys.exit(1)
@@ -425,11 +451,66 @@ PYEOF
 # Helper: Ensure Home folder exists for file uploads
 # =============================================================================
 ensure_home_folder() {
-    # This is a non-blocking check - Home folder will be created automatically
-    # when needed by Frappe, so we don't need to block bench start for this
-    log_info "Home folder will be created automatically on first file upload"
-    # Skip the actual check to avoid hanging - it's non-critical
-    return 0
+    log_info "Ensuring file storage directories and Home folder exist..."
+    
+    # Ensure public/files directory exists
+    local files_dir="$BENCH_DIR/sites/$SITE_NAME/public/files"
+    if [ ! -d "$files_dir" ]; then
+        log_info "Creating public/files directory..."
+        mkdir -p "$files_dir"
+        chmod 755 "$files_dir"
+        log_success "Created public/files directory"
+    fi
+    
+    # Ensure private/files directory exists
+    local private_files_dir="$BENCH_DIR/sites/$SITE_NAME/private/files"
+    if [ ! -d "$private_files_dir" ]; then
+        log_info "Creating private/files directory..."
+        mkdir -p "$private_files_dir"
+        chmod 755 "$private_files_dir"
+        log_success "Created private/files directory"
+    fi
+    
+    # Try to create Home folder in database (non-blocking - will fail gracefully if site not ready)
+    activate_env
+    
+    # Use bench console to create Home folder if it doesn't exist
+    local home_folder_result=$(bench --site "$SITE_NAME" console << 'PYEOF' 2>&1
+import frappe
+import sys
+
+try:
+    frappe.init(site="$SITE_NAME")
+    frappe.connect()
+    
+    # Check if Home folder exists
+    home_exists = frappe.db.exists("File", {"is_home_folder": 1})
+    
+    if not home_exists:
+        from frappe.core.doctype.file.utils import make_home_folder
+        make_home_folder()
+        frappe.db.commit()
+        print("CREATED")
+    else:
+        print("EXISTS")
+    
+    frappe.db.close()
+    sys.exit(0)
+except Exception as e:
+    # Site might not be ready yet - this is OK
+    print(f"SKIP:{str(e)[:50]}")
+    sys.exit(0)
+PYEOF
+)
+    
+    if echo "$home_folder_result" | grep -q "CREATED"; then
+        log_success "Home folder created in database"
+    elif echo "$home_folder_result" | grep -q "EXISTS"; then
+        log_success "Home folder already exists in database"
+    else
+        # Site might not be ready yet - this is OK, Home folder will be created on first file upload
+        log_info "Home folder will be created automatically on first file upload"
+    fi
 }
 
 # =============================================================================
@@ -482,11 +563,25 @@ cmd_start() {
     echo "=== Starting Bench ==="
     echo ""
     
+    # Load Redis ports from .env early so they're available everywhere
+    # ALWAYS use ports to construct URLs (ignore any existing REDIS_CACHE/REDIS_QUEUE values that might be wrong)
+    REDIS_CACHE_PORT="${REDIS_CACHE_PORT:-13000}"
+    REDIS_QUEUE_PORT="${REDIS_QUEUE_PORT:-11000}"
+    # Force correct Redis URLs based on ports (don't trust .env values that might be wrong)
+    REDIS_CACHE="redis://127.0.0.1:${REDIS_CACHE_PORT}"
+    REDIS_QUEUE="redis://127.0.0.1:${REDIS_QUEUE_PORT}"
+    REDIS_SOCKETIO="redis://127.0.0.1:${REDIS_QUEUE_PORT}"
+    
+    # Export Redis environment variables at script level so they're available to all child processes
+    export FRAPPE_REDIS_CACHE="$REDIS_CACHE"
+    export FRAPPE_REDIS_QUEUE="$REDIS_QUEUE"
+    export FRAPPE_REDIS_SOCKETIO="$REDIS_SOCKETIO"
+    
     # Restore local configuration if it was overwritten by Docker
     NEEDS_RESTORE=false
     if [ -f "$BENCH_DIR/sites/common_site_config.json" ]; then
-        REDIS_QUEUE=$(python3 -c "import json; f=open('$BENCH_DIR/sites/common_site_config.json'); c=json.load(f); print(c.get('redis_queue', '')); f.close()" 2>/dev/null || echo "")
-        if echo "$REDIS_QUEUE" | grep -q "redis://redis:6379"; then
+        REDIS_QUEUE_CHECK=$(python3 -c "import json; f=open('$BENCH_DIR/sites/common_site_config.json'); c=json.load(f); print(c.get('redis_queue', '')); f.close()" 2>/dev/null || echo "")
+        if echo "$REDIS_QUEUE_CHECK" | grep -q "redis://redis:6379"; then
             NEEDS_RESTORE=true
         fi
     fi
@@ -520,12 +615,457 @@ cmd_start() {
     # Fix asset symlinks to ensure icons are accessible (PERMANENT FIX)
     fix_assets_symlinks
     
+    # Sync site_config.json with .env file
+    sync_site_config_from_env() {
+        local site_dir="$BENCH_DIR/sites/$SITE_NAME"
+        local site_config="$site_dir/site_config.json"
+        
+        if [ ! -f "$site_config" ]; then
+            log_warning "Site config not found: $site_config"
+            return 0
+        fi
+        
+        # Ensure variables are exported
+        export DB_HOST DB_PORT DB_NAME DB_USER DB_PASSWORD
+        
+        if [ -z "$DB_NAME" ] || [ -z "$DB_USER" ] || [ -z "$DB_PASSWORD" ]; then
+            log_warning "Database credentials not found in .env file"
+            return 0
+        fi
+        
+        log_info "Syncing site_config.json with .env file..."
+        if ! SITE_CONFIG_PATH="$site_config" \
+             DB_HOST="${DB_HOST:-127.0.0.1}" \
+             DB_PORT="${DB_PORT:-3306}" \
+             DB_NAME="$DB_NAME" \
+             DB_USER="$DB_USER" \
+             DB_PASSWORD="$DB_PASSWORD" \
+             python3 << 'PYEOF'
+import json
+import os
+
+site_config = os.environ.get('SITE_CONFIG_PATH', '')
+db_host = os.environ.get('DB_HOST', os.environ.get('FRAPPE_DB_HOST', '127.0.0.1'))
+db_port = int(os.environ.get('DB_PORT', os.environ.get('FRAPPE_DB_PORT', '3306')))
+db_name = os.environ.get('DB_NAME', '')
+db_user = os.environ.get('DB_USER', '')
+db_password = os.environ.get('DB_PASSWORD', '')
+
+try:
+    with open(site_config, 'r') as f:
+        config = json.load(f)
+    
+    old_host = config.get('db_host', '')
+    old_port = config.get('db_port', 0)
+    old_name = config.get('db_name', '')
+    old_user = config.get('db_user', '')
+    
+    # Update database configuration from .env
+    config['db_host'] = db_host
+    config['db_port'] = db_port
+    if db_name:
+        config['db_name'] = db_name
+    if db_user:
+        config['db_user'] = db_user
+    if db_password:
+        config['db_password'] = db_password
+    # Remove socket setting if it exists
+    if 'db_socket' in config:
+        del config['db_socket']
+    
+    with open(site_config, 'w') as f:
+        json.dump(config, f, indent=1)
+    
+    changes = []
+    if old_host != db_host or old_port != db_port:
+        changes.append(f'host:port from {old_host}:{old_port} to {db_host}:{db_port}')
+    if db_name and old_name != db_name:
+        changes.append(f'database from {old_name} to {db_name}')
+    if db_user and old_user != db_user:
+        changes.append(f'user from {old_user} to {db_user}')
+    
+    if changes:
+        print(f'✅ Updated site database configuration: {", ".join(changes)}')
+    else:
+        print(f'✅ Site database configuration is up to date')
+except Exception as e:
+    print(f'⚠️  Could not update site config: {e}')
+PYEOF
+        then
+            log_warning "Failed to sync site_config.json"
+        fi
+    }
+    
+    sync_site_config_from_env
+    
+    # Ensure assets are built before starting (fixes 404 errors for CSS/JS bundles)
+    ensure_assets_built() {
+        local assets_json="$BENCH_DIR/sites/assets/assets.json"
+        local needs_build=false
+        
+        # Quick check: if assets.json doesn't exist or is empty, we need to build
+        if [ ! -f "$assets_json" ] || [ ! -s "$assets_json" ]; then
+            needs_build=true
+            log_info "assets.json missing or empty, assets need to be built"
+        else
+            # Check if files referenced in assets.json actually exist on disk
+            # This catches cases where assets.json is out of sync with actual files
+            log_info "Verifying asset files exist..."
+            
+            # Use Python to check if files referenced in assets.json exist
+            # Capture output separately to avoid interfering with exit code
+            local check_result=$(python3 << PYEOF 2>&1
+import json
+import os
+import sys
+
+assets_json = "$assets_json"
+bench_dir = "$BENCH_DIR"
+
+try:
+    with open(assets_json, 'r') as f:
+        assets = json.load(f)
+    
+    missing = []
+    for bundle_name, asset_path in assets.items():
+        if asset_path.startswith('/'):
+            # Remove leading slash and prepend bench_dir/sites
+            file_path = os.path.join(bench_dir, 'sites', asset_path.lstrip('/'))
+        else:
+            file_path = os.path.join(bench_dir, 'sites', 'assets', asset_path)
+        
+        if not os.path.exists(file_path):
+            missing.append((bundle_name, asset_path))
+    
+    if missing:
+        # Print to stderr so it doesn't interfere with return value
+        print(f"MISSING_FILES:{len(missing)}", file=sys.stderr)
+        # Print first few missing files for debugging
+        for bundle, path in missing[:5]:
+            print(f"  - {bundle}: {path}", file=sys.stderr)
+        sys.exit(1)
+    else:
+        print("ALL_FILES_EXIST", file=sys.stderr)
+        sys.exit(0)
+except Exception as e:
+    print(f"ERROR checking assets: {e}", file=sys.stderr)
+    sys.exit(1)
+PYEOF
+)
+            
+            if [ $? -ne 0 ]; then
+                needs_build=true
+                log_warning "Some asset files referenced in assets.json are missing"
+                echo "$check_result" | grep -E "(MISSING_FILES|  -)" | while read line; do
+                    log_info "$line"
+                done
+            else
+                log_success "All asset files verified"
+            fi
+            
+            # Also check if dist directories exist and have files
+            local frappe_dist="$BENCH_DIR/sites/assets/frappe/dist/css"
+            local lms_dist="$BENCH_DIR/sites/assets/lms/dist/css"
+            
+            if [ ! -d "$frappe_dist" ] || [ -z "$(ls -A "$frappe_dist" 2>/dev/null)" ]; then
+                needs_build=true
+                log_info "Frappe CSS bundles missing, assets need to be built"
+            elif [ ! -d "$lms_dist" ] || [ -z "$(ls -A "$lms_dist" 2>/dev/null)" ]; then
+                needs_build=true
+                log_info "LMS CSS bundles missing, assets need to be built"
+            fi
+        fi
+        
+        if [ "$needs_build" = true ]; then
+            log_info "Building assets (this may take a minute)..."
+            activate_env
+            
+            # Verify bench command is available
+            if ! command -v bench >/dev/null 2>&1; then
+                log_error "bench command not found. Make sure virtual environment is activated."
+                return 1
+            fi
+            
+            # Remove old assets.json to force fresh build if it has wrong references
+            if [ -f "$assets_json" ]; then
+                log_info "Removing outdated assets.json to force fresh build..."
+                rm -f "$assets_json"
+            fi
+            
+            # Also remove any stale bundle files that might cause conflicts
+            log_info "Cleaning old asset bundles..."
+            find "$BENCH_DIR/sites/assets" -name "*.bundle.*.css" -type f -mtime +1 -delete 2>/dev/null || true
+            find "$BENCH_DIR/sites/assets" -name "*.bundle.*.js" -type f -mtime +1 -delete 2>/dev/null || true
+            
+            # Build assets for all apps with --force to ensure fresh build
+            local build_success=false
+            if bench build --force > /tmp/bench-build.log 2>&1; then
+                build_success=true
+            else
+                log_warning "Asset build with --force had issues, trying without --force..."
+                if bench build > /tmp/bench-build.log 2>&1; then
+                    build_success=true
+                fi
+            fi
+            
+            if [ "$build_success" = true ]; then
+                # Wait a moment for filesystem to sync
+                sleep 1
+                
+                # Verify files exist after build
+                log_info "Verifying built assets..."
+                local verify_result=$(python3 << PYEOF 2>&1
+import json
+import os
+import sys
+
+assets_json = "$assets_json"
+bench_dir = "$BENCH_DIR"
+
+try:
+    if not os.path.exists(assets_json):
+        print("ERROR: assets.json not created after build", file=sys.stderr)
+        sys.exit(1)
+    
+    with open(assets_json, 'r') as f:
+        assets = json.load(f)
+    
+    missing = []
+    for bundle_name, asset_path in assets.items():
+        if asset_path.startswith('/'):
+            file_path = os.path.join(bench_dir, 'sites', asset_path.lstrip('/'))
+        else:
+            file_path = os.path.join(bench_dir, 'sites', 'assets', asset_path)
+        
+        if not os.path.exists(file_path):
+            missing.append((bundle_name, asset_path))
+    
+    if missing:
+        print(f"WARNING: {len(missing)} files still missing after build", file=sys.stderr)
+        for bundle, path in missing[:5]:
+            print(f"  - {bundle}: {path}", file=sys.stderr)
+        sys.exit(1)
+    else:
+        print("SUCCESS: All asset files verified", file=sys.stderr)
+        sys.exit(0)
+except Exception as e:
+    print(f"ERROR: {e}", file=sys.stderr)
+    sys.exit(1)
+PYEOF
+)
+                
+                if [ $? -eq 0 ]; then
+                    log_success "Assets built and verified successfully"
+                else
+                    log_warning "Assets built but verification found issues:"
+                    echo "$verify_result" | grep -E "(WARNING|  -)" | while read line; do
+                        log_info "$line"
+                    done
+                    log_info "This may resolve after the first page load"
+                fi
+                
+                # Clear cache after building
+                bench --site "$SITE_NAME" clear-cache > /dev/null 2>&1 || true
+            else
+                log_error "Asset build failed. Check /tmp/bench-build.log for details"
+                log_info "You can manually build assets with: bench build"
+                # Don't exit - let bench start anyway, assets might work
+            fi
+        else
+            log_success "Assets are up to date"
+        fi
+    }
+    
+    ensure_assets_built
+    
+    # Fix Redis configuration in common_site_config.json
+    fix_redis_config() {
+        log_info "Ensuring Redis configuration is correct..."
+        
+        # Use the Redis variables already set at function start (from .env or defaults)
+        # These are already exported at the script level
+        
+        local config_file="$BENCH_DIR/sites/common_site_config.json"
+        if [ ! -f "$config_file" ]; then
+            log_warning "common_site_config.json not found, will be created by setup-env.sh"
+            return 0
+        fi
+        
+        # Always update Redis config to ensure it's correct (no conditional check)
+        log_info "Updating Redis configuration to use local ports..."
+        python3 << PYEOF
+import json
+import os
+import sys
+
+config_file = "${config_file}"
+redis_cache = "${REDIS_CACHE}"
+redis_queue = "${REDIS_QUEUE}"
+redis_socketio = "${REDIS_SOCKETIO}"
+
+try:
+    with open(config_file, 'r') as f:
+        config = json.load(f)
+    
+    old_cache = config.get('redis_cache', '')
+    old_queue = config.get('redis_queue', '')
+    old_socketio = config.get('redis_socketio', '')
+    
+    # Always update to ensure correct values
+    config['redis_cache'] = redis_cache
+    config['redis_queue'] = redis_queue
+    config['redis_socketio'] = redis_socketio
+    
+    with open(config_file, 'w') as f:
+        json.dump(config, f, indent=1)
+    
+    changes = []
+    if old_cache != redis_cache:
+        changes.append(f'cache: {old_cache} -> {redis_cache}')
+    if old_queue != redis_queue:
+        changes.append(f'queue: {old_queue} -> {redis_queue}')
+    if old_socketio != redis_socketio:
+        changes.append(f'socketio: {old_socketio} -> {redis_socketio}')
+    
+    if changes:
+        print(f"✅ Updated Redis configuration: {', '.join(changes)}")
+    else:
+        print(f"✅ Redis configuration verified: cache={redis_cache}, queue={redis_queue}, socketio={redis_socketio}")
+except Exception as e:
+    print(f"❌ Could not update Redis config: {e}", file=sys.stderr)
+    sys.exit(1)
+PYEOF
+        if [ $? -ne 0 ]; then
+            log_error "Failed to update Redis configuration"
+            return 1
+        fi
+    }
+    
+    fix_redis_config
+    
     # Ensure Redis configs are up to date
     log_info "Ensuring Redis configs are up to date..."
     export FRAPPE_BENCH_ROOT="$BENCH_DIR"
     if [ -f "$BENCH_DIR/config/generate_redis_configs.sh" ]; then
         "$BENCH_DIR/config/generate_redis_configs.sh" > /dev/null 2>&1
     fi
+    
+    # Check and fix node_modules for platform mismatch (Docker -> Local)
+    fix_node_modules_platform() {
+        log_info "Checking node_modules for platform compatibility..."
+        
+        local needs_reinstall=false
+        local current_platform=""
+        
+        # Detect current platform
+        case "$(uname -s)" in
+            Darwin*)
+                case "$(uname -m)" in
+                    arm64) current_platform="darwin-arm64" ;;
+                    x86_64) current_platform="darwin-x64" ;;
+                esac
+                ;;
+            Linux*)
+                case "$(uname -m)" in
+                    aarch64|arm64) current_platform="linux-arm64" ;;
+                    x86_64) current_platform="linux-x64" ;;
+                esac
+                ;;
+        esac
+        
+        if [ -z "$current_platform" ]; then
+            log_warning "Could not detect platform, skipping node_modules check"
+            return 0
+        fi
+        
+        # Check frappe app
+        if [ -d "$BENCH_DIR/apps/frappe/node_modules/@esbuild" ]; then
+            if [ ! -d "$BENCH_DIR/apps/frappe/node_modules/@esbuild/$current_platform" ]; then
+                # Check if there are Linux binaries when we're on macOS (or vice versa)
+                if [ "$(uname -s)" = "Darwin" ] && [ -d "$BENCH_DIR/apps/frappe/node_modules/@esbuild/linux-arm64" ]; then
+                    needs_reinstall=true
+                    log_warning "Detected Linux esbuild binaries in frappe (from Docker), need to reinstall for macOS"
+                elif [ "$(uname -s)" = "Linux" ] && [ -d "$BENCH_DIR/apps/frappe/node_modules/@esbuild/darwin-arm64" ]; then
+                    needs_reinstall=true
+                    log_warning "Detected macOS esbuild binaries in frappe, need to reinstall for Linux"
+                fi
+            fi
+        fi
+        
+        # Check lms app
+        if [ -d "$BENCH_DIR/apps/lms/node_modules/@esbuild" ]; then
+            if [ ! -d "$BENCH_DIR/apps/lms/node_modules/@esbuild/$current_platform" ]; then
+                # Check if there are Linux binaries when we're on macOS (or vice versa)
+                if [ "$(uname -s)" = "Darwin" ] && [ -d "$BENCH_DIR/apps/lms/node_modules/@esbuild/linux-arm64" ]; then
+                    needs_reinstall=true
+                    log_warning "Detected Linux esbuild binaries in lms (from Docker), need to reinstall for macOS"
+                elif [ "$(uname -s)" = "Linux" ] && [ -d "$BENCH_DIR/apps/lms/node_modules/@esbuild/darwin-arm64" ]; then
+                    needs_reinstall=true
+                    log_warning "Detected macOS esbuild binaries in lms, need to reinstall for Linux"
+                fi
+            fi
+        fi
+        
+        if [ "$needs_reinstall" = true ]; then
+            log_info "Reinstalling node_modules for macOS compatibility..."
+            
+            # Reinstall frappe node_modules
+            if [ -d "$BENCH_DIR/apps/frappe" ] && [ -f "$BENCH_DIR/apps/frappe/package.json" ]; then
+                log_info "Reinstalling frappe node_modules..."
+                cd "$BENCH_DIR/apps/frappe"
+                if [ -f "yarn.lock" ]; then
+                    rm -rf node_modules/@esbuild 2>/dev/null || true
+                    yarn install --force --network-timeout 600000 > /tmp/frappe-yarn-reinstall.log 2>&1 || {
+                        log_warning "Frappe yarn reinstall had issues, but continuing..."
+                    }
+                elif [ -f "package-lock.json" ]; then
+                    rm -rf node_modules/@esbuild 2>/dev/null || true
+                    npm ci --force > /tmp/frappe-npm-reinstall.log 2>&1 || {
+                        log_warning "Frappe npm reinstall had issues, but continuing..."
+                    }
+                fi
+                cd "$BENCH_DIR"
+            fi
+            
+            # Reinstall lms node_modules
+            if [ -d "$BENCH_DIR/apps/lms" ] && [ -f "$BENCH_DIR/apps/lms/package.json" ]; then
+                log_info "Reinstalling lms node_modules..."
+                cd "$BENCH_DIR/apps/lms"
+                if [ -f "yarn.lock" ]; then
+                    rm -rf node_modules/@esbuild 2>/dev/null || true
+                    yarn install --force --network-timeout 600000 > /tmp/lms-yarn-reinstall.log 2>&1 || {
+                        log_warning "LMS yarn reinstall had issues, but continuing..."
+                    }
+                elif [ -f "package-lock.json" ]; then
+                    rm -rf node_modules/@esbuild 2>/dev/null || true
+                    npm ci --force > /tmp/lms-npm-reinstall.log 2>&1 || {
+                        log_warning "LMS npm reinstall had issues, but continuing..."
+                    }
+                fi
+                cd "$BENCH_DIR"
+            fi
+            
+            log_success "Node modules reinstalled for macOS"
+        else
+            log_success "Node modules are compatible with current platform"
+        fi
+    }
+    
+    fix_node_modules_platform
+    
+    # Export environment variables for Frappe (Frappe checks env vars first)
+    export FRAPPE_DB_HOST="${FRAPPE_DB_HOST:-${DB_HOST}}"
+    export FRAPPE_DB_PORT="${FRAPPE_DB_PORT:-${DB_PORT}}"
+    export FRAPPE_DB_NAME="${FRAPPE_DB_NAME:-${DB_NAME}}"
+    export FRAPPE_DB_USER="${FRAPPE_DB_USER:-${DB_USER}}"
+    export FRAPPE_DB_PASSWORD="${FRAPPE_DB_PASSWORD:-${DB_PASSWORD}}"
+    export FRAPPE_DB_SOCKET=""
+    
+    # Redis environment variables are already set in fix_redis_config()
+    # These will be used by socketio/node_utils.js if FRAPPE_REDIS_QUEUE is set
+    # Make sure they're exported for the bench start process
+    export FRAPPE_REDIS_CACHE="${FRAPPE_REDIS_CACHE:-redis://127.0.0.1:${REDIS_CACHE_PORT:-13000}}"
+    export FRAPPE_REDIS_QUEUE="${FRAPPE_REDIS_QUEUE:-redis://127.0.0.1:${REDIS_QUEUE_PORT:-11000}}"
     
     # Check if already running
     if is_bench_running; then
@@ -562,7 +1102,11 @@ cmd_status() {
         
         # Check ports
         log_info "Checking ports..."
-        for port in 8000 9000 11000 13000; do
+        WEBSERVER_PORT="${WEBSERVER_PORT:-8000}"
+        SOCKETIO_PORT="${SOCKETIO_PORT:-9000}"
+        REDIS_QUEUE_PORT="${REDIS_QUEUE_PORT:-11000}"
+        REDIS_CACHE_PORT="${REDIS_CACHE_PORT:-13000}"
+        for port in "$WEBSERVER_PORT" "$SOCKETIO_PORT" "$REDIS_QUEUE_PORT" "$REDIS_CACHE_PORT"; do
             if lsof -Pi :$port -sTCP:LISTEN -t >/dev/null 2>&1; then
                 log_success "Port $port is in use"
             else
