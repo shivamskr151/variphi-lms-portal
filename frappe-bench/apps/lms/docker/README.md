@@ -25,8 +25,37 @@ The Docker setup uses:
 
 ### Building and Running
 
+**Option 1: Using the helper script (Recommended - automatically loads .env and checks Docker)**
+
 ```bash
 cd frappe-bench/apps/lms/docker
+
+# Build the Docker image
+./docker-compose.sh build
+
+# Start all services
+./docker-compose.sh up -d
+
+# View logs
+./docker-compose.sh logs -f frappe
+
+# Stop services
+./docker-compose.sh down
+
+# Stop and remove volumes (clean slate)
+./docker-compose.sh down -v
+```
+
+**Option 2: Using docker-compose directly (requires Docker running and .env loaded)**
+
+```bash
+cd frappe-bench/apps/lms/docker
+
+# Ensure Docker is running first
+./docker-check.sh
+
+# Load .env file (if not already loaded)
+source ../../.env 2>/dev/null || true
 
 # Build the Docker image
 docker-compose build
@@ -39,10 +68,12 @@ docker-compose logs -f frappe
 
 # Stop services
 docker-compose down
-
-# Stop and remove volumes (clean slate)
-docker-compose down -v
 ```
+
+**Note:** The helper script (`docker-compose.sh`) automatically:
+- Checks if Docker is running (starts it if needed on macOS)
+- Loads environment variables from `.env` file
+- Executes docker-compose commands with proper configuration
 
 ### Access the Application
 

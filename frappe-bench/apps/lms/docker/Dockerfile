@@ -36,7 +36,10 @@ ENV PYTHONUNBUFFERED=1
 ENV SHELL=/bin/bash
 ENV BENCH_NAME=frappe-bench
 ENV MARIADB_HOST=mariadb
-ENV MARIADB_ROOT_PASSWORD=123
+# MARIADB_ROOT_PASSWORD should be set via docker-compose or .env file
+# Default is empty (no password) - override in docker-compose.yml
+ARG MARIADB_ROOT_PASSWORD=
+ENV MARIADB_ROOT_PASSWORD=${MARIADB_ROOT_PASSWORD}
 
 # Expose ports
 EXPOSE 8000 9000 5173 6787

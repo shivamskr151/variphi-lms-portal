@@ -14,11 +14,14 @@ import frappe
 
 def bootstrap():
     try:
+        # Get site name from environment or use default
+        site_name = os.environ.get('SITE_NAME', 'vgi.local')
+        
         # Set sites path
         sites_path = os.path.join(bench_path, 'sites')
         
         # Initialize site
-        frappe.init('vgi.local', sites_path=sites_path)
+        frappe.init(site_name, sites_path=sites_path)
         frappe.connect()
         
         print("Connected to database. Bootstrapping...")

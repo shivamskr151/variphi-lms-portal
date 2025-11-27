@@ -24,13 +24,41 @@
 #   ./access_database.sh "SHOW TABLES;"     # Run a single SQL command
 #   ./access_database.sh info               # Show database information
 
-# Database credentials from site_config.json (vgi.local)
-# Auto-detected from sites/vgi.local/site_config.json
-DB_USER="_517a1fbab7ba0c04"
-DB_PASS="yIawHBFVcaiAKaJw"
-DB_NAME="_517a1fbab7ba0c04"
-DB_HOST="127.0.0.1"
-DB_PORT="3306"
+# Auto-detect site name and load database credentials
+BENCH_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SITE_NAME="${SITE_NAME:-vgi.local}"
+
+# Try to load from .env first
+if [ -f "$BENCH_DIR/.env" ]; then
+    set -a
+    source "$BENCH_DIR/.env"
+    set +a
+fi
+
+# Load from site_config.json if available
+SITE_CONFIG="$BENCH_DIR/sites/$SITE_NAME/site_config.json"
+if [ -f "$SITE_CONFIG" ]; then
+    DB_NAME=$(python3 -c "import json; f=open('$SITE_CONFIG'); c=json.load(f); print(c.get('db_name', '')); f.close()" 2>/dev/null || echo "")
+    DB_USER=$(python3 -c "import json; f=open('$SITE_CONFIG'); c=json.load(f); print(c.get('db_user', '')); f.close()" 2>/dev/null || echo "")
+    DB_PASS=$(python3 -c "import json; f=open('$SITE_CONFIG'); c=json.load(f); print(c.get('db_password', '')); f.close()" 2>/dev/null || echo "")
+    DB_HOST=$(python3 -c "import json; f=open('$SITE_CONFIG'); c=json.load(f); print(c.get('db_host', '127.0.0.1')); f.close()" 2>/dev/null || echo "127.0.0.1")
+    DB_PORT=$(python3 -c "import json; f=open('$SITE_CONFIG'); c=json.load(f); print(c.get('db_port', '3306')); f.close()" 2>/dev/null || echo "3306")
+fi
+
+# Use defaults if still not set
+DB_NAME="${DB_NAME:-}"
+DB_USER="${DB_USER:-}"
+DB_PASS="${DB_PASS:-}"
+DB_HOST="${DB_HOST:-127.0.0.1}"
+DB_PORT="${DB_PORT:-3306}"
+
+# Validate credentials
+if [ -z "$DB_NAME" ] || [ -z "$DB_USER" ] || [ -z "$DB_PASS" ]; then
+    echo "Error: Database credentials not found."
+    echo "Please run: ./setup-env.sh"
+    echo "Or set SITE_NAME environment variable and ensure site_config.json exists"
+    exit 1
+fi
 
 # Colors
 GREEN='\033[0;32m'
@@ -39,7 +67,7 @@ YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
 # Change to bench directory
-cd "$(dirname "${BASH_SOURCE[0]}")"
+cd "$BENCH_DIR"
 
 show_info() {
     echo -e "${BLUE}=== Database Information ===${NC}"

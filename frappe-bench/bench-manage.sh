@@ -8,8 +8,16 @@ set -e
 BENCH_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$BENCH_DIR"
 
-# Site name - auto-detect or use default
+# Site name and configuration - auto-detect from .env or use defaults
+BENCH_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [ -f "$BENCH_DIR/.env" ]; then
+    set -a
+    source "$BENCH_DIR/.env"
+    set +a
+fi
 SITE_NAME="${SITE_NAME:-vgi.local}"
+WEBSERVER_PORT="${WEBSERVER_PORT:-8000}"
+SITE_HOST="${SITE_HOST:-http://127.0.0.1:${WEBSERVER_PORT}}"
 
 # Color codes for better output
 RED='\033[0;31m'
@@ -219,6 +227,24 @@ cmd_fix_paths() {
     echo ""
     log_success "All paths are now dynamic!"
     log_info "Redis configs have been regenerated with current bench path"
+}
+
+# =============================================================================
+# COMMAND: setup-env - Setup environment configuration
+# =============================================================================
+cmd_setup_env() {
+    echo "=== Setting Up Environment Configuration ==="
+    echo ""
+    
+    if [ -f "$BENCH_DIR/setup-env.sh" ]; then
+        log_info "Running setup-env.sh..."
+        chmod +x "$BENCH_DIR/setup-env.sh"
+        "$BENCH_DIR/setup-env.sh"
+        log_success "Environment setup complete!"
+    else
+        log_error "setup-env.sh not found at $BENCH_DIR/setup-env.sh"
+        return 1
+    fi
 }
 
 # =============================================================================
@@ -580,8 +606,16 @@ cmd_redis_cache() {
     # Use absolute path for config file to ensure Redis reads it correctly
     REDIS_CONFIG="$BENCH_DIR/config/redis_cache.conf"
     
-    # Start Redis with the freshly generated config (use absolute path)
-    exec redis-server "$REDIS_CONFIG"
+    # Verify the config file has the correct port
+    if ! grep -q "^port 13000" "$REDIS_CONFIG"; then
+        log_error "Redis cache config file does not specify port 13000"
+        log_info "Regenerating config..."
+        "$BENCH_DIR/config/generate_redis_configs.sh"
+    fi
+    
+    # Start Redis with the config file
+    # Pass config file as first argument, then override port explicitly
+    exec redis-server "$REDIS_CONFIG" --port 13000
 }
 
 # =============================================================================
@@ -606,8 +640,17 @@ cmd_redis_queue() {
     # Use absolute path for config file to ensure Redis reads it correctly
     REDIS_CONFIG="$BENCH_DIR/config/redis_queue.conf"
     
-    # Start Redis with the freshly generated config (use absolute path)
-    exec redis-server "$REDIS_CONFIG"
+    # Verify the config file has the correct port
+    if ! grep -q "^port 11000" "$REDIS_CONFIG"; then
+        log_error "Redis queue config file does not specify port 11000"
+        log_info "Regenerating config..."
+        "$BENCH_DIR/config/generate_redis_configs.sh"
+    fi
+    
+    # Start Redis with the config file
+    # Pass config file as first argument, then override port explicitly
+    # This ensures our config is used and port is set correctly
+    exec redis-server "$REDIS_CONFIG" --port 11000
 }
 
 # =============================================================================
@@ -707,7 +750,7 @@ PYEOF
     echo ""
     log_success "Login fix complete!"
     log_info "Test login:"
-    echo "  1. Open http://127.0.0.1:8000"
+    echo "  1. Open ${SITE_HOST}"
     echo "  2. Username: Administrator"
     echo "  3. Password: admin (or the password you set)"
 }
@@ -841,7 +884,7 @@ cmd_build_assets() {
     log_success "Asset build complete!"
     log_info "Next steps:"
     echo "  1. Restart bench: $0 restart"
-    echo "  2. Open http://127.0.0.1:8000 in your browser"
+    echo "  2. Open ${SITE_HOST} in your browser"
     echo "  3. Press Ctrl+Shift+R (or Cmd+Shift+R on Mac) to hard refresh"
 }
 
@@ -909,7 +952,7 @@ cmd_fix_ui() {
     log_success "UI assets fix complete!"
     log_info "Next steps:"
     echo "  1. Restart bench: $0 restart"
-    echo "  2. Open http://127.0.0.1:8000 in your browser"
+    echo "  2. Open ${SITE_HOST} in your browser"
     echo "  3. Press Ctrl+Shift+R (or Cmd+Shift+R on Mac) to hard refresh"
 }
 
@@ -930,7 +973,7 @@ cmd_verify_ui() {
     echo ""
     log_info "Checking CSS files..."
     for css in "login.bundle.57LIKW7X.css" "website.bundle.6B52VKY7.css" "lms.bundle.VTQCHFW6.css"; do
-        status=$(curl -s -o /dev/null -w "%{http_code}" "http://127.0.0.1:8000/assets/frappe/dist/css/$css" 2>/dev/null || echo "000")
+        status=$(curl -s -o /dev/null -w "%{http_code}" "${SITE_HOST}/assets/frappe/dist/css/$css" 2>/dev/null || echo "000")
         if [ "$status" = "200" ]; then
             log_success "$css - OK (HTTP 200)"
         else
@@ -949,13 +992,13 @@ cmd_verify_ui() {
     
     echo ""
     log_info "Testing main page..."
-    status=$(curl -s -o /dev/null -w "%{http_code}" "http://127.0.0.1:8000" 2>/dev/null || echo "000")
+    status=$(curl -s -o /dev/null -w "%{http_code}" "${SITE_HOST}" 2>/dev/null || echo "000")
     if [ "$status" = "200" ]; then
         log_success "Main page loads (HTTP 200)"
         
         echo ""
         log_info "Checking for CSS links in HTML..."
-        css_count=$(curl -s http://127.0.0.1:8000 2>/dev/null | grep -c "stylesheet" || echo "0")
+        css_count=$(curl -s "${SITE_HOST}" 2>/dev/null | grep -c "stylesheet" || echo "0")
         log_info "Found $css_count stylesheet links"
     else
         log_warning "Main page error (HTTP $status)"
@@ -978,6 +1021,9 @@ main() {
             ;;
         fix-paths)
             cmd_fix_paths
+            ;;
+        setup-env)
+            cmd_setup_env
             ;;
         find-paths)
             cmd_find_paths
@@ -1025,6 +1071,7 @@ main() {
             echo ""
             echo "Commands:"
             echo "  check         - Check setup and verify system"
+            echo "  setup-env     - Setup environment configuration from .env file"
             echo "  fix-env       - Fix environment permissions and paths"
             echo "  fix-paths     - Make all paths dynamic and regenerate configs"
             echo "  find-paths    - Find hardcoded paths in the project"

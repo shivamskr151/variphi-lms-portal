@@ -36,7 +36,15 @@ cd "$BENCH_DIR"
 
 # 5. Clear all caches
 echo "5️⃣  Clearing caches..."
-bench --site vgi.local clear-cache > /dev/null 2>&1 || true
+# Auto-detect site name from .env or use default
+SITE_NAME="${SITE_NAME:-vgi.local}"
+if [ -f "$BENCH_DIR/.env" ]; then
+    set -a
+    source "$BENCH_DIR/.env"
+    set +a
+    SITE_NAME="${SITE_NAME:-vgi.local}"
+fi
+bench --site "$SITE_NAME" clear-cache > /dev/null 2>&1 || true
 rm -rf sites/*/cache/* 2>/dev/null || true
 
 # 6. Verify assets

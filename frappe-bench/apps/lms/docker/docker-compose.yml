@@ -10,7 +10,7 @@ services:
       - --skip-character-set-client-handshake
       - --skip-innodb-read-only-compressed
     environment:
-      MYSQL_ROOT_PASSWORD: 123
+      MYSQL_ROOT_PASSWORD: ${MARIADB_ROOT_PASSWORD:-123}
       MYSQL_DATABASE: lms
     volumes:
       - mariadb-data:/var/lib/mysql
@@ -18,7 +18,7 @@ services:
       - "3307:3306"  # Host port 3307 -> Container port 3306 (3306 already in use locally)
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-p123"]
+      test: ["CMD", "sh", "-c", "mysqladmin ping -h localhost -uroot -p${MARIADB_ROOT_PASSWORD:-123}"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -55,9 +55,9 @@ services:
       - FRAPPE_DB_HOST=${FRAPPE_DB_HOST:-host.docker.internal}
       - FRAPPE_DB_PORT=${FRAPPE_DB_PORT:-3306}
       - FRAPPE_DB_SOCKET=
-      - REDIS_CACHE=redis://redis:6379
-      - REDIS_QUEUE=redis://redis:6379
-      - REDIS_SOCKETIO=redis://redis:6379
+      - REDIS_CACHE=${REDIS_CACHE:-redis://redis:6379}
+      - REDIS_QUEUE=${REDIS_QUEUE:-redis://redis:6379}
+      - REDIS_SOCKETIO=${REDIS_SOCKETIO:-redis://redis:6379}
     working_dir: /home/frappe/frappe-bench
     volumes:
       # Mount source code for hot reload - any local changes will reflect immediately

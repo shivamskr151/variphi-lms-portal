@@ -6,7 +6,30 @@ set timeout 300
 set script_path [file dirname [file normalize [info script]]]
 cd $script_path
 
-spawn bash -c "source env/bin/activate && bench --site vgi.local reinstall --yes --admin-password admin --db-root-username root --db-root-password \"\""
+# Get site name from environment or use default
+# Try to read from .env file first, then environment variable, then default
+set site_name "vgi.local"
+set bench_dir [file dirname [file normalize [info script]]]
+set env_file [file join $bench_dir ".env"]
+
+# Try to read SITE_NAME from .env file
+if {[file exists $env_file]} {
+    set fp [open $env_file r]
+    while {[gets $fp line] >= 0} {
+        if {[regexp {^SITE_NAME=(.+)$} $line match value]} {
+            set site_name [string trim $value]
+            break
+        }
+    }
+    close $fp
+}
+
+# Override with environment variable if set
+if {[info exists ::env(SITE_NAME)] && $::env(SITE_NAME) != ""} {
+    set site_name $::env(SITE_NAME)
+}
+
+spawn bash -c "source env/bin/activate && bench --site $site_name reinstall --yes --admin-password admin --db-root-username root --db-root-password \"\""
 
 expect {
     "MySQL root password:" {

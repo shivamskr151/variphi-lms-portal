@@ -1,0 +1,7 @@
+# Docker Compose Override Example
+# Copy this to docker-compose.override.yml to customize Docker settings
+# This file is automatically ignored by git
+
+# You can override any settings from docker-compose.yml here
+# For example, to use different ports or environment variables
+

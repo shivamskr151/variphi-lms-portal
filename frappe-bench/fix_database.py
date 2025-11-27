@@ -14,9 +14,12 @@ import frappe
 
 def main():
     try:
-        print("Initializing site...")
+        # Get site name from environment or use default
+        site_name = os.environ.get('SITE_NAME', 'vgi.local')
+        
+        print(f"Initializing site: {site_name}...")
         sites_path = os.path.join(bench_path, 'sites')
-        frappe.init('vgi.local', sites_path=sites_path)
+        frappe.init(site_name, sites_path=sites_path)
         
         print("Connecting to database...")
         frappe.connect()
@@ -38,8 +41,9 @@ def main():
         print("Committing changes...")
         frappe.db.commit()
         
-        print("\n✅ Database bootstrapped successfully!")
-        print("You can now run: bench --site vgi.local migrate")
+        site_name = os.environ.get('SITE_NAME', 'vgi.local')
+        print(f"\n✅ Database bootstrapped successfully!")
+        print(f"You can now run: bench --site {site_name} migrate")
         
     except Exception as e:
         print(f"\n❌ Error: {e}")

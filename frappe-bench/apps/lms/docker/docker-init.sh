@@ -333,9 +333,14 @@ if os.path.exists(config_file):
         with open(config_file, 'r') as f:
             config = json.load(f)
         
-        config['redis_cache'] = 'redis://redis:6379'
-        config['redis_queue'] = 'redis://redis:6379'
-        config['redis_socketio'] = 'redis://redis:6379'
+        # Use environment variables or Docker defaults
+        redis_cache = os.environ.get('REDIS_CACHE', 'redis://redis:6379')
+        redis_queue = os.environ.get('REDIS_QUEUE', 'redis://redis:6379')
+        redis_socketio = os.environ.get('REDIS_SOCKETIO', 'redis://redis:6379')
+        
+        config['redis_cache'] = redis_cache
+        config['redis_queue'] = redis_queue
+        config['redis_socketio'] = redis_socketio
         
         with open(config_file, 'w') as f:
             json.dump(config, f, indent=1)

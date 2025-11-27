@@ -7,13 +7,30 @@ set -e
 BENCH_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$BENCH_DIR" || exit 1
 
+# Load environment variables from .env
+if [ -f "$BENCH_DIR/.env" ]; then
+    set -a
+    source "$BENCH_DIR/.env"
+    set +a
+fi
+
+# Set defaults for Redis if not in .env
+REDIS_CACHE="${REDIS_CACHE:-redis://127.0.0.1:13000}"
+REDIS_QUEUE="${REDIS_QUEUE:-redis://127.0.0.1:11000}"
+REDIS_SOCKETIO="${REDIS_SOCKETIO:-redis://127.0.0.1:11000}"
+
 echo "🔧 Restoring local configuration..."
 
 # Use Python to update both Redis and Database configs
-python3 << 'PYTHON_SCRIPT'
+python3 << PYTHON_SCRIPT
 import json
 import os
 import glob
+
+# Load environment variables
+redis_cache = os.environ.get('REDIS_CACHE', 'redis://127.0.0.1:13000')
+redis_queue = os.environ.get('REDIS_QUEUE', 'redis://127.0.0.1:11000')
+redis_socketio = os.environ.get('REDIS_SOCKETIO', 'redis://127.0.0.1:11000')
 
 # Update common_site_config.json (Redis)
 config_file = "sites/common_site_config.json"
@@ -22,19 +39,20 @@ if os.path.exists(config_file):
         with open(config_file, 'r') as f:
             config = json.load(f)
         
-        # Update to local Redis ports
-        config['redis_cache'] = 'redis://127.0.0.1:13000'
-        config['redis_queue'] = 'redis://127.0.0.1:11000'
-        config['redis_socketio'] = 'redis://127.0.0.1:11000'
+        # Update to local Redis ports from .env
+        config['redis_cache'] = redis_cache
+        config['redis_queue'] = redis_queue
+        config['redis_socketio'] = redis_socketio
         
         with open(config_file, 'w') as f:
             json.dump(config, f, indent=1)
         print("✅ Restored local Redis configuration")
-        print("   redis_cache: redis://127.0.0.1:13000")
-        print("   redis_queue: redis://127.0.0.1:11000")
-        print("   redis_socketio: redis://127.0.0.1:11000")
+        print(f"   redis_cache: {redis_cache}")
+        print(f"   redis_queue: {redis_queue}")
+        print(f"   redis_socketio: {redis_socketio}")
     except Exception as e:
         print(f"⚠️  Could not update Redis config: {e}")
+PYTHON_SCRIPT
 
 # Update all site_config.json files (Database)
 # Connect to Docker MariaDB on localhost:3307

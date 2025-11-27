@@ -2,12 +2,44 @@
 # Script to help open database in GUI tools
 # Usage: ./open_database.sh [tool]
 
-# Database credentials
-DB_USER="_2ca05118bd4124f3"
-DB_PASS="vAhQPAHJpRcIsQmi"
-DB_NAME="_2ca05118bd4124f3"
-DB_HOST="localhost"
-DB_PORT="3306"
+# Auto-detect bench directory
+BENCH_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$BENCH_DIR"
+
+# Load environment variables from .env
+if [ -f "$BENCH_DIR/.env" ]; then
+    set -a
+    source "$BENCH_DIR/.env"
+    set +a
+fi
+
+# Get site name
+SITE_NAME="${SITE_NAME:-vgi.local}"
+
+# Load database credentials from site_config.json if available (preferred source)
+SITE_CONFIG="$BENCH_DIR/sites/$SITE_NAME/site_config.json"
+if [ -f "$SITE_CONFIG" ]; then
+    SITE_DB_NAME=$(python3 -c "import json; f=open('$SITE_CONFIG'); c=json.load(f); print(c.get('db_name', '')); f.close()" 2>/dev/null || echo "")
+    SITE_DB_USER=$(python3 -c "import json; f=open('$SITE_CONFIG'); c=json.load(f); print(c.get('db_user', '')); f.close()" 2>/dev/null || echo "")
+    SITE_DB_PASS=$(python3 -c "import json; f=open('$SITE_CONFIG'); c=json.load(f); print(c.get('db_password', '')); f.close()" 2>/dev/null || echo "")
+    SITE_DB_HOST=$(python3 -c "import json; f=open('$SITE_CONFIG'); c=json.load(f); print(c.get('db_host', '127.0.0.1')); f.close()" 2>/dev/null || echo "127.0.0.1")
+    SITE_DB_PORT=$(python3 -c "import json; f=open('$SITE_CONFIG'); c=json.load(f); print(c.get('db_port', '3306')); f.close()" 2>/dev/null || echo "3306")
+fi
+
+# Use site_config.json values if available, otherwise fall back to .env variables
+DB_NAME="${SITE_DB_NAME:-${DB_NAME}}"
+DB_USER="${SITE_DB_USER:-${DB_USER}}"
+DB_PASS="${SITE_DB_PASS:-${DB_PASSWORD}}"
+DB_HOST="${SITE_DB_HOST:-${DB_HOST:-127.0.0.1}}"
+DB_PORT="${SITE_DB_PORT:-${DB_PORT:-3306}}"
+
+# Validate credentials
+if [ -z "$DB_NAME" ] || [ -z "$DB_USER" ] || [ -z "$DB_PASS" ]; then
+    echo "Error: Database credentials not found."
+    echo "Please run: ./setup-env.sh"
+    echo "Or ensure .env file exists with DB_NAME, DB_USER, and DB_PASSWORD set"
+    exit 1
+fi
 
 # Colors
 GREEN='\033[0;32m'

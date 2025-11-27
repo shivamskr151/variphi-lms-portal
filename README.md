@@ -64,7 +64,9 @@ docker-compose logs -f frappe
 
 For detailed Docker setup instructions, see [frappe-bench/apps/lms/docker/README.md](frappe-bench/apps/lms/docker/README.md)
 
-### Option 2: Manual Setup
+### Option 2: Automated Setup (Recommended for New Systems)
+
+The easiest way to set up on a new system without conflicts:
 
 1. **Clone the repository:**
    ```bash
@@ -72,25 +74,62 @@ For detailed Docker setup instructions, see [frappe-bench/apps/lms/docker/README
    cd variphi-lms-portal/frappe-bench
    ```
 
-2. **Set up database:**
+2. **Run the initialization script:**
    ```bash
-   mysql -u root < create_db_user.sql
+   ./init-system.sh
+   ```
+   
+   This script will:
+   - Create `.env` file from `.env.example` with auto-generated secure credentials
+   - Set up Python virtual environment
+   - Install all dependencies (Python and Node.js)
+   - Generate configuration files
+   - Set up database (if MySQL/MariaDB is available)
+   - Fix all paths and configurations
+
+3. **Start the server:**
+   ```bash
+   ./bench-manage.sh start
    ```
 
-3. **Start the bench:**
-   ```bash
-   bench start
-   ```
-
-4. **Run migrations (in a new terminal):**
-   ```bash
-   bench --site vgi.local migrate
-   ```
-
-5. **Access the application:**
-   - URL: http://vgi.local:8000 or http://127.0.0.1:8000
+4. **Access the application:**
+   - URL: http://127.0.0.1:8000 (or as configured in `.env`)
    - Username: `Administrator`
    - Password: `admin`
+
+**Note:** The `.env` file contains your system-specific configuration. It's automatically generated and excluded from git. You can edit it to customize settings.
+
+### Option 3: Manual Setup (Advanced)
+
+If you prefer manual setup or need to customize the process:
+
+1. **Clone the repository:**
+   ```bash
+   git clone https://github.com/shivamskr151/variphi-lms-portal.git
+   cd variphi-lms-portal/frappe-bench
+   ```
+
+2. **Set up environment:**
+   ```bash
+   ./setup-env.sh
+   # Edit .env file if needed
+   ./setup-env.sh  # Run again to generate configs
+   ```
+
+3. **Set up database:**
+   ```bash
+   mysql -u root -p < create_db_user.sql
+   ```
+
+4. **Install dependencies:**
+   ```bash
+   ./setup-dependencies.sh
+   ```
+
+5. **Start the bench:**
+   ```bash
+   ./bench-manage.sh start
+   ```
 
 For detailed setup instructions, see [frappe-bench/README.md](frappe-bench/README.md)
 
